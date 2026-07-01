@@ -70,7 +70,8 @@ def main():
     ap.add_argument("--data_dir", default="./data")
     ap.add_argument("--model", required=True)
     ap.add_argument("--input", default="context", choices=["context", "prompt"])
-    ap.add_argument("--max_hist", type=int, default=6)
+    ap.add_argument("--max_hist", type=int, default=0,
+                    help="cap history to last N events; 0 = full history (no cap)")
     ap.add_argument("--max_len", type=int, default=512)
     ap.add_argument("--epochs", type=float, default=3.0)
     ap.add_argument("--lr", type=float, default=2e-5)          # full-FT needs a small LR
@@ -94,17 +95,13 @@ def main():
 
     # ---- data ----
     samples, y = load_samples(args.data_dir)
-    texts = build_texts(samples, input_mode=args.input, max_hist=args.max_hist)
+    max_hist = args.max_hist or None            # 0 -> None (full history)
+    texts = build_texts(samples, input_mode=args.input, max_hist=max_hist)
     y_ids = np.array([CLASS_TO_ID[a] for a in y])
     tr, va = split_indices(y, seed=args.seed)
     if args.limit:
         tr, va = tr[: args.limit], va[: max(1, args.limit // 4)]
-    logger.info(f"samples={len(texts)}  train={len(tr)}  val={len(va)}")
-
-    # class weights for imbalance (Macro-F1 weights rare classes equally)
-    counts = np.bincount(y_ids[tr], minlength=len(ALL_CLASSES)).astype(float)
-    class_weights = torch.tensor((counts.sum() / (len(counts) * np.maximum(counts, 1))),
-                                 dtype=torch.float32, device=device)
+    logger.info(f"samples={len(texts)}  train={len(tr)}  val={len(va)}  max_hist={max_hist}")
 
     # ---- tokenizer + model + single linear head ----
     # trust_remote_code: some backbones (e.g. gte's model_type "new") ship custom
@@ -131,14 +128,8 @@ def main():
     val_ds = build_dataset(tok, [texts[i] for i in va], y_ids[va], args.max_len)
     collator = DataCollatorWithPadding(tok)
 
-    # class-weighted cross-entropy
-    class WTrainer(Trainer):
-        def compute_loss(self, model, inputs, return_outputs=False, **kw):
-            labels = inputs.pop("labels")
-            out = model(**inputs)
-            loss = torch.nn.functional.cross_entropy(out.logits, labels, weight=class_weights)
-            return (loss, out) if return_outputs else loss
-
+    # plain cross-entropy (Trainer's default). No class weighting — the 73.07 model
+    # handles imbalance via post-hoc logit-bias calibration instead.
     safe = args.model.replace("/", "__")
     run_dir = os.path.join(args.out_dir, f"ft_{safe}")
     targs = TrainingArguments(
@@ -154,7 +145,7 @@ def main():
         load_best_model_at_end=True, metric_for_best_model="macro_f1", greater_is_better=True,
         save_total_limit=1, fp16=(device == "cuda"), report_to="none", seed=args.seed,
     )
-    trainer = WTrainer(
+    trainer = Trainer(
         model=model, args=targs, train_dataset=train_ds, eval_dataset=val_ds,
         data_collator=collator, compute_metrics=compute_metrics,
     )

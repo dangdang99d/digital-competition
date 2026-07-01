@@ -31,10 +31,11 @@ def load_samples(data_dir):
     return samples, y
 
 
-def serialize(r, max_hist=6):
-    """Flatten one sample to a single text string: session_meta + recent history + current_prompt.
+def serialize(r, max_hist=None):
+    """Flatten one sample to a single text string: session_meta + history + current_prompt.
 
-    Matches analysis/llm_clustering.ipynb so probe inputs are consistent with the EDA.
+    max_hist=None -> use the FULL history (no cap); an int caps to the last N events.
+    (Token-level truncation is still handled downstream by the tokenizer's max_len.)
     """
     sm = r["session_meta"]
     ws = sm["workspace"]
@@ -43,7 +44,8 @@ def serialize(r, max_hist=6):
         f"budget={sm['budget_tokens_remaining']} ci={ws['last_ci_status']} "
         f"dirty={ws['git_dirty']} open={','.join(ws['open_files']) or '-'}]"
     ]
-    for t in r["history"][-max_hist:]:
+    hist = r["history"] if max_hist is None else r["history"][-max_hist:]
+    for t in hist:
         if t.get("role") == "user":
             parts.append(f"USER: {t['content']}")
         else:
@@ -54,8 +56,9 @@ def serialize(r, max_hist=6):
     return "\n".join(parts)
 
 
-def build_texts(samples, input_mode="context", max_hist=6):
-    """input_mode: 'context' = full serialized; 'prompt' = current_prompt only (baseline-style)."""
+def build_texts(samples, input_mode="context", max_hist=None):
+    """input_mode: 'context' = full serialized; 'prompt' = current_prompt only (baseline-style).
+    max_hist=None -> full history."""
     if input_mode == "prompt":
         return [s["current_prompt"] or "" for s in samples]
     if input_mode == "context":
