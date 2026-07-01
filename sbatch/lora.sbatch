@@ -12,7 +12,7 @@
 # Slurm JOB ARRAY: one independent job per model (array tasks 0..2), so each gets its
 # own GPU, log, and full time budget. QoS MaxJobsPU=2 -> up to 2 run at once, 3rd queues.
 # Moana cluster. No --account/--qos needed.
-#   Submit:  sbatch sbatch/finetune.sbatch
+#   Submit:  sbatch sbatch/lora.sbatch
 #   Logs:    sbatch/logs/lora-<jobid>_<taskid>.out  (one per model)
 #   Results: output/ft_results_<n>.csv per task  (merge after; no concurrent-append race)
 
