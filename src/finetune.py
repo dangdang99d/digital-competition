@@ -1,9 +1,10 @@
 """Fine-tune a backbone with a single linear classification head for the 14-class
 next-action task. Metric: Macro-F1 (competition metric).
 
-This run: LoRA adapters on the backbone + the standard single linear head
-(AutoModelForSequenceClassification's built-in head is one linear layer — the right
-choice once the backbone is trainable; a deep MLP head would overfit).
+This run: FULL fine-tuning — all backbone weights + the standard single linear head
+are trained (AutoModelForSequenceClassification's built-in head is one linear layer).
+Higher ceiling than LoRA but more VRAM/time; uses a small LR (2e-5) and gradient
+checkpointing. (The LoRA variant lives on the probe-improvements branch.)
 
 Usage:
   python -m src.finetune --model Qwen/Qwen3-Embedding-0.6B
@@ -69,12 +70,9 @@ def main():
     ap.add_argument("--max_hist", type=int, default=6)
     ap.add_argument("--max_len", type=int, default=512)
     ap.add_argument("--epochs", type=float, default=3.0)
-    ap.add_argument("--lr", type=float, default=2e-4)          # LoRA likes higher LR
-    ap.add_argument("--batch_size", type=int, default=16)
-    ap.add_argument("--grad_accum", type=int, default=1)
-    ap.add_argument("--lora_r", type=int, default=16)
-    ap.add_argument("--lora_alpha", type=int, default=32)
-    ap.add_argument("--lora_dropout", type=float, default=0.05)
+    ap.add_argument("--lr", type=float, default=2e-5)          # full-FT needs a small LR
+    ap.add_argument("--batch_size", type=int, default=8)       # full-FT uses more VRAM
+    ap.add_argument("--grad_accum", type=int, default=2)       # effective batch 16
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out_dir", default="./output")
     ap.add_argument("--limit", type=int, default=0, help="cap train+val size (0=all); for quick tests")
@@ -84,10 +82,9 @@ def main():
         AutoModelForSequenceClassification, AutoTokenizer, DataCollatorWithPadding,
         Trainer, TrainingArguments,
     )
-    from peft import LoraConfig, TaskType, get_peft_model
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"device={device}  model={args.model}  method=LoRA+linear-head")
+    logger.info(f"device={device}  model={args.model}  method=full-finetune+linear-head")
 
     # ---- data ----
     samples, y = load_samples(args.data_dir)
@@ -113,17 +110,10 @@ def main():
     )
     model.config.pad_token_id = tok.pad_token_id
 
-    # ---- LoRA on the backbone (head trains fully) ----
-    lora = LoraConfig(
-        task_type=TaskType.SEQ_CLS, r=args.lora_r, lora_alpha=args.lora_alpha,
-        lora_dropout=args.lora_dropout, bias="none",
-        # auto-target all linear layers — robust across qwen3 / modernbert / gte / xlm-r
-        # (their attention submodule names differ: q_proj vs Wqkv vs query, etc.)
-        target_modules="all-linear",
-        modules_to_save=["classifier", "score"],   # keep the linear head trainable + saved
-    )
-    model = get_peft_model(model, lora)
-    model.print_trainable_parameters()
+    # ---- full fine-tuning: ALL backbone weights + head are trainable ----
+    n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    n_total = sum(p.numel() for p in model.parameters())
+    logger.info(f"trainable params: {n_trainable:,} / {n_total:,} (100% — full fine-tune)")
 
     train_ds = build_dataset(tok, [texts[i] for i in tr], y_ids[tr], args.max_len)
     val_ds = build_dataset(tok, [texts[i] for i in va], y_ids[va], args.max_len)
@@ -147,6 +137,7 @@ def main():
         warmup_ratio=0.05, weight_decay=0.01,
         logging_strategy="steps", logging_steps=50,   # periodic {loss,epoch} log lines
         disable_tqdm=False,                            # keep the bar; tqdm.auto is log-safe
+        gradient_checkpointing=True,                   # trade compute for VRAM (full-FT is heavy)
         eval_strategy="epoch", save_strategy="epoch",
         load_best_model_at_end=True, metric_for_best_model="macro_f1", greater_is_better=True,
         save_total_limit=1, fp16=(device == "cuda"), report_to="none", seed=args.seed,
@@ -163,7 +154,7 @@ def main():
 
     # ---- record ----
     os.makedirs(args.out_dir, exist_ok=True)
-    row = {"model": args.model, "method": "lora", "head": "linear",
+    row = {"model": args.model, "method": "full_ft", "head": "linear",
            "epochs": args.epochs, "lr": args.lr, "val_macro_f1": round(float(val_f1), 4)}
     out_csv = os.path.join(args.out_dir, "ft_results.csv")
     write_header = not os.path.exists(out_csv)

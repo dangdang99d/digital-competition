@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=finetune
+#SBATCH --job-name=fullft
 #SBATCH --partition=batch_ugrad_advisor_x
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-gpu=8
@@ -7,9 +7,9 @@
 #SBATCH --time=1-00:00:00
 #SBATCH --output=sbatch/logs/%x-%j.out
 
-# LoRA fine-tuning (single linear head) for the 14-class next-action task.
+# FULL fine-tuning (all backbone weights + single linear head) for the 14-class task.
 # Runs the 3-model bake-off sequentially: frozen-probe winner, the LB-68.8 baseline,
-# and the efficient runner-up. Each ~1-2h; all three fit the 1-day wall.
+# and the efficient runner-up. Slower/heavier than LoRA; fits the 1-day wall.
 # Moana cluster. No --account/--qos needed.
 #   Submit:  sbatch sbatch/finetune.sbatch
 #   Results: output/ft_results.csv  (+ output/ft_<model>/ checkpoints)
