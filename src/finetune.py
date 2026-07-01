@@ -75,6 +75,9 @@ def main():
     ap.add_argument("--grad_accum", type=int, default=2)       # effective batch 16
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out_dir", default="./output")
+    ap.add_argument("--results_name", default="ft_results.csv",
+                    help="results CSV filename; give each array task a unique one to "
+                         "avoid concurrent-append races")
     ap.add_argument("--limit", type=int, default=0, help="cap train+val size (0=all); for quick tests")
     args = ap.parse_args()
 
@@ -156,7 +159,7 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     row = {"model": args.model, "method": "full_ft", "head": "linear",
            "epochs": args.epochs, "lr": args.lr, "val_macro_f1": round(float(val_f1), 4)}
-    out_csv = os.path.join(args.out_dir, "ft_results.csv")
+    out_csv = os.path.join(args.out_dir, args.results_name)
     write_header = not os.path.exists(out_csv)
     with open(out_csv, "a", newline="") as f:
         w = _csv.DictWriter(f, fieldnames=list(row.keys()))
