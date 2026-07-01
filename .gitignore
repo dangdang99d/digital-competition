@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment / secrets
+.env
+*.local
+
+# Competition data (large, provided by DACON — not committed)
+data/
+*.zip
+
+# Model weights / training artifacts (large binaries)
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.pkl
+checkpoints/
+logs/
+wandb/
+
+# Research notes & papers (not part of the runnable project)
+docs/
+papers/
+
+# Local command cheat-sheets (env-specific, not committed)
+commands
+commands_moana
+
+# rsync exclude list (local tooling)
+.rsyncignore
+
+# DACON-provided baseline (reference only, not our code)
+baseline/
+
+# Slurm job scripts (env-specific)
+sbatch/
+
+# Local inference outputs
+output/
+outputs/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store

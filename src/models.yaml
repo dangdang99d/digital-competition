@@ -1,0 +1,47 @@
+# Encoder models to sweep with the frozen linear probe.
+# pool: how to reduce token hidden states to one vector.
+#   mean       -> attention-masked mean pooling (BERT/XLM-R e5/bge/KURE)
+#   last_token -> last non-pad token (Qwen3-Embedding, decoder-style embedders)
+# prefix: prepended to each input (E5 needs "query: "; others "")
+# trust_remote_code: needed for gte ('new' model_type)
+#
+# All load on transformers==4.51.3 and fit a single GPU. Ordered cheap -> strong.
+
+models:
+  - id: intfloat/multilingual-e5-small
+    pool: mean
+    prefix: "query: "
+    max_len: 512
+  - id: intfloat/multilingual-e5-base
+    pool: mean
+    prefix: "query: "
+    max_len: 512
+  - id: intfloat/multilingual-e5-large
+    pool: mean
+    prefix: "query: "
+    max_len: 512
+  - id: ibm-granite/granite-embedding-311m-multilingual-r2
+    pool: cls          # ModernBERT sentence-transformer; CLS pooling per its 1_Pooling config
+    prefix: ""
+    max_len: 1024      # supports up to 32k; 1024 is plenty for our serialized context
+  - id: BAAI/bge-m3
+    pool: mean
+    prefix: ""
+    max_len: 1024
+  - id: nlpai-lab/KURE-v1
+    pool: mean
+    prefix: ""
+    max_len: 1024
+  - id: Alibaba-NLP/gte-multilingual-base
+    pool: mean
+    prefix: ""
+    max_len: 1024
+    trust_remote_code: true
+  - id: Qwen/Qwen3-Embedding-0.6B
+    pool: last_token
+    prefix: ""
+    max_len: 1024
+  - id: Qwen/Qwen3-Embedding-4B
+    pool: last_token
+    prefix: ""
+    max_len: 1024
