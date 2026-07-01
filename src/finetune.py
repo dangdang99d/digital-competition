@@ -15,6 +15,9 @@ import csv as _csv
 import json
 import os
 
+# reduce CUDA fragmentation OOMs (must be set before torch initializes CUDA)
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import numpy as np
 import torch
 from loguru import logger
@@ -70,8 +73,8 @@ def main():
     ap.add_argument("--max_len", type=int, default=512)
     ap.add_argument("--epochs", type=float, default=3.0)
     ap.add_argument("--lr", type=float, default=2e-4)          # LoRA likes higher LR
-    ap.add_argument("--batch_size", type=int, default=16)
-    ap.add_argument("--grad_accum", type=int, default=1)
+    ap.add_argument("--batch_size", type=int, default=4)      # ~11GB GPU; OOM at 16
+    ap.add_argument("--grad_accum", type=int, default=4)      # effective batch 16
     ap.add_argument("--lora_r", type=int, default=16)
     ap.add_argument("--lora_alpha", type=int, default=32)
     ap.add_argument("--lora_dropout", type=float, default=0.05)
@@ -147,6 +150,7 @@ def main():
         warmup_ratio=0.05, weight_decay=0.01,
         logging_strategy="steps", logging_steps=50,   # periodic {loss,epoch} log lines
         disable_tqdm=False,                            # keep the bar; tqdm.auto is log-safe
+        gradient_checkpointing=True,                   # trade compute for VRAM
         eval_strategy="epoch", save_strategy="epoch",
         load_best_model_at_end=True, metric_for_best_model="macro_f1", greater_is_better=True,
         save_total_limit=1, fp16=(device == "cuda"), report_to="none", seed=args.seed,
