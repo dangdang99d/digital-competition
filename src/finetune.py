@@ -107,12 +107,18 @@ def main():
                                  dtype=torch.float32, device=device)
 
     # ---- tokenizer + model + single linear head ----
-    tok = AutoTokenizer.from_pretrained(args.model)
+    # trust_remote_code: some backbones (e.g. gte's model_type "new") ship custom
+    # modeling code and won't load without it.
+    tok = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model, num_labels=len(ALL_CLASSES),
         torch_dtype=torch.float32,   # fp32 for stable classifier training
+        trust_remote_code=True,
+        # some backbones ship a pretrained head (e.g. gte has a 1-logit head);
+        # discard it and init a fresh 14-class head for our task.
+        ignore_mismatched_sizes=True,
     )
     model.config.pad_token_id = tok.pad_token_id
 
