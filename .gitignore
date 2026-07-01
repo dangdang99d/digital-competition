@@ -51,9 +51,6 @@ commands_moana
 # DACON-provided baseline (reference only, not our code)
 baseline/
 
-# Slurm job scripts (env-specific)
-sbatch/
-
 # Local inference outputs
 output/
 outputs/
