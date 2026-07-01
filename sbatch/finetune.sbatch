@@ -38,4 +38,5 @@ export HF_HOME=/data/ksjang0515/hf_cache
 
 "${PY}" -u -m src.finetune \
   --model "${MODEL}" --epochs 3 --out_dir ./output \
+  --batch_size 4 --grad_accum 4 \
   --results_name "ft_results_${SLURM_ARRAY_TASK_ID}.csv"

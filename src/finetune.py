@@ -16,6 +16,9 @@ import csv as _csv
 import json
 import os
 
+# reduce CUDA fragmentation OOMs (must be set before torch initializes CUDA)
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import numpy as np
 import torch
 from loguru import logger
@@ -71,8 +74,8 @@ def main():
     ap.add_argument("--max_len", type=int, default=512)
     ap.add_argument("--epochs", type=float, default=3.0)
     ap.add_argument("--lr", type=float, default=2e-5)          # full-FT needs a small LR
-    ap.add_argument("--batch_size", type=int, default=8)       # full-FT uses more VRAM
-    ap.add_argument("--grad_accum", type=int, default=2)       # effective batch 16
+    ap.add_argument("--batch_size", type=int, default=4)       # full-FT is VRAM-heavy (~11GB GPU)
+    ap.add_argument("--grad_accum", type=int, default=4)       # effective batch 16
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out_dir", default="./output")
     ap.add_argument("--results_name", default="ft_results.csv",
