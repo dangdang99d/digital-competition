@@ -77,6 +77,10 @@ def main():
     ap.add_argument("--lr", type=float, default=2e-5)          # full-FT needs a small LR
     ap.add_argument("--batch_size", type=int, default=4)       # full-FT is VRAM-heavy (~11GB GPU)
     ap.add_argument("--grad_accum", type=int, default=4)       # effective batch 16
+    ap.add_argument("--optim", default="adamw_torch",
+                    help="optimizer. adamw_torch (default, best quality) or sgd "
+                         "(zero optimizer state -> fits bigger models like Qwen3 full-FT). "
+                         "SGD usually needs a higher --lr.")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out_dir", default="./output")
     ap.add_argument("--results_name", default="ft_results.csv",
@@ -137,6 +141,7 @@ def main():
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size * 2,
         gradient_accumulation_steps=args.grad_accum, learning_rate=args.lr,
+        optim=args.optim,                              # sgd for big models (zero optimizer state)
         warmup_ratio=0.05, weight_decay=0.01,
         logging_strategy="steps", logging_steps=50,   # periodic {loss,epoch} log lines
         disable_tqdm=False,                            # keep the bar; tqdm.auto is log-safe
