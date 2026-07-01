@@ -23,9 +23,21 @@ from sklearn.metrics import f1_score
 from src.data import ALL_CLASSES, CLASS_TO_ID, build_texts, load_samples, split_indices
 
 
-def build_dataset(tok, texts, labels, max_len):
-    """Tokenize once; return a torch Dataset yielding input_ids/attention_mask/labels."""
-    enc = tok(texts, truncation=True, max_length=max_len, padding=False)
+def build_dataset(tok, texts, labels, max_len, desc="tokenizing"):
+    """Tokenize once; return a torch Dataset yielding input_ids/attention_mask/labels.
+
+    Tokenizes in chunks with a tqdm bar (works in a terminal and prints periodic
+    updates to an sbatch log file).
+    """
+    from tqdm.auto import tqdm
+
+    enc = {"input_ids": [], "attention_mask": []}
+    chunk = 1000
+    for i in tqdm(range(0, len(texts), chunk), desc=desc, unit="k-rows",
+                  mininterval=5.0):  # mininterval keeps sbatch logs sparse
+        e = tok(texts[i:i + chunk], truncation=True, max_length=max_len, padding=False)
+        enc["input_ids"].extend(e["input_ids"])
+        enc["attention_mask"].extend(e["attention_mask"])
 
     class DS(torch.utils.data.Dataset):
         def __len__(self):
@@ -132,7 +144,9 @@ def main():
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size * 2,
         gradient_accumulation_steps=args.grad_accum, learning_rate=args.lr,
-        warmup_ratio=0.05, weight_decay=0.01, logging_steps=50,
+        warmup_ratio=0.05, weight_decay=0.01,
+        logging_strategy="steps", logging_steps=50,   # periodic {loss,epoch} log lines
+        disable_tqdm=False,                            # keep the bar; tqdm.auto is log-safe
         eval_strategy="epoch", save_strategy="epoch",
         load_best_model_at_end=True, metric_for_best_model="macro_f1", greater_is_better=True,
         save_total_limit=1, fp16=(device == "cuda"), report_to="none", seed=args.seed,
