@@ -39,5 +39,5 @@ export HF_HOME=/data/ksjang0515/hf_cache
 # Training flags stay identical across models; this only unblocks gte's load.
 yes y 2>/dev/null | "${PY}" -u -m src.finetune \
   --model "${MODEL}" --epochs 3 --out_dir ./output \
-  --batch_size 4 --grad_accum 4 \
+  --batch_size 4 --grad_accum 4 --optim sgd --lr 1e-3 \
   --results_name "ft_results_${SLURM_ARRAY_TASK_ID}.csv"
