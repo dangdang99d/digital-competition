@@ -35,8 +35,9 @@ nvidia-smi -L || true
 
 PY=/data/ksjang0515/conda/envs/dacon/bin/python
 export HF_HOME=/data/ksjang0515/hf_cache
-
-"${PY}" -u -m src.finetune \
+# non-interactive: auto-approve any trust_remote_code prompt (gte ships custom code).
+# Training flags stay identical across models; this only unblocks gte's load.
+yes y 2>/dev/null | "${PY}" -u -m src.finetune \
   --model "${MODEL}" --epochs 3 --out_dir ./output \
   --batch_size 4 --grad_accum 4 \
   --results_name "ft_results_${SLURM_ARRAY_TASK_ID}.csv"
