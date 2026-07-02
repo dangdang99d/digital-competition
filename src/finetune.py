@@ -65,6 +65,42 @@ def compute_metrics(eval_pred):
     return {"macro_f1": mf1}
 
 
+def _macro_f1(logits, labels, bias):
+    preds = np.argmax(logits + bias, axis=1)
+    return f1_score(labels, preds, labels=list(range(len(ALL_CLASSES))),
+                    average="macro", zero_division=0)
+
+
+def calibrate_logit_bias(logits, labels, rounds=3, grid=None):
+    """Post-hoc per-class logit bias tuned on val to maximize Macro-F1 (73.07 trick).
+
+    Coordinate ascent: for each class, try a grid of additive biases and keep the
+    value that improves val Macro-F1. Returns (bias_vector, base_f1, tuned_f1).
+    """
+    if grid is None:
+        grid = np.round(np.arange(-2.0, 2.01, 0.05), 2)
+    n = len(ALL_CLASSES)
+    bias = np.zeros(n, dtype=np.float32)
+    base = _macro_f1(logits, labels, bias)
+    best = base
+    for _ in range(rounds):
+        improved = False
+        for c in range(n):
+            cur = bias[c]
+            best_b, best_f1 = cur, best
+            for b in grid:
+                bias[c] = b
+                f1 = _macro_f1(logits, labels, bias)
+                if f1 > best_f1:
+                    best_f1, best_b = f1, b
+            bias[c] = best_b
+            if best_f1 > best:
+                best, improved = best_f1, True
+        if not improved:
+            break
+    return bias, base, best
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_dir", default="./data")
@@ -160,10 +196,24 @@ def main():
     val_f1 = metrics["eval_macro_f1"]
     logger.success(f"{args.model}: best val Macro-F1 = {val_f1:.4f}")
 
+    # ---- logit-bias calibration on val (73.07 trick) ----
+    pred_out = trainer.predict(val_ds)
+    val_logits = pred_out.predictions
+    val_labels = pred_out.label_ids
+    bias, base_f1, tuned_f1 = calibrate_logit_bias(val_logits, val_labels)
+    logger.success(f"  calibrated: {base_f1:.4f} -> {tuned_f1:.4f} (+{tuned_f1-base_f1:.4f})")
+    # save the bias next to the model checkpoint for inference
+    id2label = model.config.id2label
+    bias_map = {id2label[i]: float(bias[i]) for i in range(len(ALL_CLASSES))}
+    with open(os.path.join(run_dir, "logit_bias.json"), "w") as f:
+        json.dump({"base_macro_f1": float(base_f1), "tuned_macro_f1": float(tuned_f1),
+                   "bias": bias_map}, f, indent=2)
+
     # ---- record ----
     os.makedirs(args.out_dir, exist_ok=True)
     row = {"model": args.model, "method": "full_ft", "head": "linear",
-           "epochs": args.epochs, "lr": args.lr, "val_macro_f1": round(float(val_f1), 4)}
+           "epochs": args.epochs, "lr": args.lr, "val_macro_f1": round(float(val_f1), 4),
+           "calibrated_macro_f1": round(float(tuned_f1), 4)}
     out_csv = os.path.join(args.out_dir, args.results_name)
     write_header = not os.path.exists(out_csv)
     with open(out_csv, "a", newline="") as f:
