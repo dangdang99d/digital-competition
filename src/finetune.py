@@ -153,6 +153,10 @@ def main():
         args.model, num_labels=len(ALL_CLASSES),
         torch_dtype=torch.float32,   # fp32 for stable classifier training
         trust_remote_code=True,
+        # real action names so config.id2label maps ids -> actions (not LABEL_0...);
+        # needed for logit_bias.json keys and for inference to emit action strings.
+        id2label={i: c for i, c in enumerate(ALL_CLASSES)},
+        label2id={c: i for i, c in enumerate(ALL_CLASSES)},
         # some backbones ship a pretrained head (e.g. gte has a 1-logit head);
         # discard it and init a fresh 14-class head for our task.
         ignore_mismatched_sizes=True,
