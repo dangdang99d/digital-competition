@@ -69,7 +69,6 @@ Now decide the next action for this session.
 SESSION:
 {context}
 
-First give a one-sentence reason, then on a new line write the decision in the exact
-form `NEXT ACTION: <action>` using one action name from the allowed list.
-
-Reason:
+Think about which actions are plausible for this session, then pick the best one.
+End your reply with the decision on its own line, in the exact form
+`NEXT ACTION: <action>`, using one action name from the allowed list.

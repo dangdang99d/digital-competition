@@ -1,0 +1,48 @@
+# =====================================================================
+# Guardrail harness workflow — prompt iteration loop (branch: guardrail)
+# Reasoning LLM (<think> stage) picks the next action, guardrailed to the
+# 14 labels. No fine-tuning: you ONLY edit the prompt, never the code.
+# =====================================================================
+
+# --- the loop ---
+# 1. edit prompts/default.md        (4 sections: System / Actions / Examples / Question)
+#    bigger experiments: cp to prompts/v2.md and pass --prompt prompts/v2.md
+# 2. run locally (fast feedback) or on moana (real numbers, Qwen3-4B)
+# 3. read output/harness_debug*.csv  -> wrong predictions sorted FIRST, with the
+#    model's thinking trace + answer per sample; fix the prompt, repeat
+# 4. when the dev number looks good, add --full for the final 14k-val number
+
+# --- run locally (RTX 4060 8GB: Qwen3-4B does NOT fit; use 1.7B) ---
+python -m src.harness --model Qwen/Qwen3-1.7B --n_dev 100 --tag local
+# faster sanity checks:
+#   --no_thinking      generative but no <think> stage
+#   --mode logprob     no generation at all, rank labels by log-prob (fastest)
+#   --model Qwen/Qwen3-0.6B   smoke-test the pipeline
+
+# --- run on moana (Qwen3-4B, thinking mode, 1000-sample dev subset) ---
+rsync -avz --delete --exclude-from='.rsyncignore' ./ moana:/data/ksjang0515/dacon/
+ssh moana 'cd /data/ksjang0515/dacon && sbatch sbatch/harness.sbatch'
+# thinking mode is ~hours for 1000 samples (bs=1); edit the sbatch to change
+# model / prompt / --tag / add --full
+
+# --- fetch results moana -> local ---
+rsync -avz moana:/data/ksjang0515/dacon/output/ ./output/
+rsync -avz moana:/data/ksjang0515/dacon/sbatch/logs/ ./sbatch/logs/
+
+# --- where the outputs live ---
+# output/harness_results.csv     one row per run: model, prompt, mode, shots, macro_f1
+#                                (append-only -> your prompt-version history)
+# output/harness_debug<tag>.csv  every sample, wrong-first: id, correct, true, pred,
+#                                thinking (<think> trace), answer (visible text with
+#                                NEXT ACTION), truncated (hit the --max_new_tokens
+#                                budget mid-generation), top3 (logprob mode), context
+# sbatch/logs/harness-<job>.out  macro-F1, per-class F1 (weak classes flagged),
+#                                top confusion pairs (true -> pred)
+
+# --- knobs (src/harness.py --help for all) ---
+# --n_dev N            dev-subset size, stratified (default 1000)
+# --full               whole 14k val split instead of the dev subset
+# --shots N            few-shot examples from the prompt file (default 2)
+# --max_hist N         history turns kept in the serialized session (default 6)
+# --max_new_tokens N   thinking + answer budget (default 1024)
+# --tag NAME           suffix for the debug csv, keeps prompt versions separate
