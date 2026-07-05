@@ -66,9 +66,10 @@ def _result_ok(rs):
 SERIALIZE_VARIANTS = {
     "v1":        {},                        # the hist0-baseline format
     "nometa":    {"drop_meta": True},       # no [tier=... ci=...] header line
-    # bare compressed action lines: "grep_search fail" — args/summary dropped
-    # (verdict rule v2), no ACTION marker, no ->; ask_user/plan_task bare names
-    "leanact":   {"lean_actions": True, "bare_actions": True},
+    # ACTION name -> ok|fail: args/summary dropped (verdict rule v2), markers
+    # kept — tests content removal alone. Bare lines belong with atomic tokens
+    # (combo): without them the "role from leading name token" argument fails.
+    "leanact":   {"lean_actions": True},
     "dupprompt": {"dup_prompt": True},      # prompt text doubled inside the PROMPT line
     # all axes at once (pair with --special_tokens for the full combo run)
     "combo":     {"drop_meta": True, "lean_actions": True, "dup_prompt": True,
