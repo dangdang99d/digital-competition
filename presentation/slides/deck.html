@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DACON #236694 — AI Agent Action Decision · ENC Lab</title>
+<style>
+  :root{
+    --paper:#ffffff; --ink:#1b2434; --head:#0d316f; --deepnavy:#03003a; --barnavy:#0d316f;
+    --red:#c0342b; --rule:#d44848;
+    --muted:#57617a; --faint:#98a1b4; --line:#e4e8f1; --line2:#cfd6e4; --panel:#f6f8fc;
+    --good:#1a7f43; --bad:#c0342b; --blue:#2f6fd0; --amber:#b7791f; --violet:#6d4bd0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; background:#22262f; overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; color:var(--ink);}
+  .mono{font-family:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;}
+  pre.yaml{font-family:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    font-size:13.5px; line-height:1.62; color:var(--ink); background:#f6f8fc;
+    border:1px solid var(--line); border-left:3px solid var(--head); border-radius:8px;
+    padding:16px 18px; white-space:pre; overflow:hidden; margin:0; width:520px;}
+  .yamlwrap{position:relative;}
+  .hbrace{position:absolute; top:233px; left:384px; height:132px; width:13px;
+    border:2px solid var(--red); border-left:none; border-radius:0 7px 7px 0;}
+  .hlabel{position:absolute; top:290px; left:406px; font-size:13.5px; font-weight:700; color:var(--red); white-space:nowrap;}
+  pre.yaml .yk{color:var(--head); font-weight:600;}
+  pre.yaml .ys{color:#1a7f43;}
+  pre.yaml .yv{color:#b7791f;}
+  pre.yaml .yc{color:var(--faint); font-style:italic;}
+  pre.yaml .ya{color:var(--red); font-weight:700;}
+  pre.yaml .yhl{background:rgba(192,52,43,.10); border-radius:4px;}
+  pre.yaml .yhl .yk{color:var(--red);}
+
+  /* ---- auto-fit stage ---- */
+  #wrap{position:fixed; inset:0; display:flex; align-items:center; justify-content:center;}
+  #stage{width:1280px; height:720px; transform-origin:center center;}
+  .slide{position:relative; width:1280px; height:720px; overflow:hidden; display:none;}
+  .slide.on{display:block;}
+  body.all{overflow:auto; background:#22262f;}
+  body.all #wrap{position:static; display:block;}
+  body.all #stage{width:1280px; transform:none !important; margin:0 auto;}
+  body.all .slide{display:block; margin:16px auto; box-shadow:0 10px 34px rgba(0,0,0,.5);}
+
+  /* ---------- CONTENT (Style B — clean academic) ---------- */
+  .slide[data-tpl="content"]{
+    background:var(--paper) url(assets/enc_watermark.png) no-repeat center 44%;
+    background-size:560px auto; padding:58px 72px 76px;}
+  .slide[data-tpl="content"]::after{content:""; position:absolute; left:0; right:0; bottom:0; height:18px; background:var(--barnavy);}
+  .slide[data-tpl="content"]::before{content:""; position:absolute; top:16px; right:0; width:200px; height:3px; background:var(--rule);}
+  .c-logo{position:absolute; left:30px; bottom:28px; height:30px; z-index:3;}
+  .c-pg{position:absolute; right:28px; bottom:26px; font-size:15px; color:var(--muted); z-index:3; font-variant-numeric:tabular-nums;}
+
+  /* ---------- TITLE ---------- */
+  .slide[data-tpl="title"]{background:var(--paper) url(assets/enc_crest_light.png) no-repeat center 47%; background-size:320px auto; padding:96px;}
+  /* ---------- END ---------- */
+  .slide[data-tpl="end"]{background:var(--deepnavy) url(assets/enc_crest_navy.png) no-repeat center 44%; background-size:360px auto; padding:120px 96px; color:#eaecf5;}
+  .slide[data-tpl="end"] .kicker{color:#c9d2ea}
+  .slide[data-tpl="end"] h1{color:#fff}
+  .slide[data-tpl="end"] .lead{color:#b8c1dc}
+  .tb{position:absolute; left:0; right:0; height:10px; z-index:2;}
+  .tb-top{top:34px} .tb-bot{bottom:34px}
+  .tb .r{position:absolute; left:140px; right:140px; top:4px; height:2px; background:var(--rule);}
+  .tb .c{position:absolute; left:50%; transform:translateX(-50%); top:1px; width:500px; height:8px; background:var(--deepnavy);}
+  .slide[data-tpl="end"] .tb .c{background:#fff; opacity:.9}
+  .end-logo{position:absolute; left:50%; transform:translateX(-50%); bottom:92px; height:52px;}
+  .title-logo{position:absolute; left:50%; transform:translateX(-50%); bottom:70px; height:34px;}
+
+  /* ---------- typography ---------- */
+  .kicker{font-size:14px; letter-spacing:.2em; text-transform:uppercase; color:var(--red); font-weight:700;}
+  h1{font-size:37px; line-height:1.1; font-weight:750; letter-spacing:-.01em; color:var(--head); margin-top:10px;}
+  .hr{height:3px; width:66px; background:var(--red); border-radius:2px; margin:14px 0 22px;}
+  .lead{font-size:19.5px; color:var(--muted); line-height:1.5; max-width:1080px;}
+  .accent{color:var(--head)} .red{color:var(--red)} .amber{color:var(--amber)} .good{color:var(--good)}
+  .bad{color:var(--bad)} .blue{color:var(--blue)} .violet{color:var(--violet)} .muted{color:var(--muted)} .dim{color:var(--faint)}
+  b,strong{color:var(--ink)}
+
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:46px;}
+  .sublabel{font-size:12.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); font-weight:700; margin-bottom:12px;}
+  .take{border-left:3px solid var(--head); padding:3px 0 3px 16px; font-size:18px; color:var(--ink); line-height:1.5;}
+  .take + .take{margin-top:18px;}
+  .take.r{border-color:var(--red)} .take.a{border-color:var(--amber)}
+  .take b{color:var(--head)} .take.r b{color:var(--red)} .take .sm{color:var(--muted); font-size:15.5px;}
+  p.body{font-size:18px; color:var(--muted); line-height:1.55; margin-top:10px;}
+  p.body b{color:var(--ink)}
+  .mt10{margin-top:10px}.mt14{margin-top:14px}.mt18{margin-top:18px}.mt24{margin-top:24px}.mt30{margin-top:30px}
+
+  table.aca{width:100%; border-collapse:collapse; font-size:16.5px;}
+  table.aca th{text-align:left; font-size:12px; letter-spacing:.05em; text-transform:uppercase; color:var(--faint); font-weight:700; padding:0 8px 9px; border-bottom:2px solid var(--line2);}
+  table.aca td{padding:9px 8px; border-bottom:1px solid var(--line); color:var(--ink);}
+  table.aca td.n,table.aca th.n{text-align:right; font-variant-numeric:tabular-nums;}
+  table.aca tr.hi td{background:rgba(13,49,111,.055);}
+  table.aca tr.hi td:first-child{color:var(--head); font-weight:700;}
+  .nbad{color:var(--red); font-weight:700} .ngood{color:var(--good); font-weight:700}
+  .strike{text-decoration:line-through; color:var(--faint);}
+
+  .flow{display:flex; align-items:center; gap:6px;}
+  .flow .step{flex:1; text-align:center; padding:6px 4px;}
+  .flow .step .v{font-size:33px; font-weight:780; letter-spacing:-.02em; color:var(--head); line-height:1;}
+  .flow .step .k{font-size:13px; color:var(--muted); margin-top:8px; line-height:1.3;}
+  .flow .arrow{color:var(--faint); font-size:22px; flex:0 0 auto;}
+  .tag{display:inline-block; font-size:13px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:#fff; background:var(--red); padding:3px 11px; border-radius:5px; vertical-align:middle;}
+
+  .statcols{display:flex; align-items:stretch;}
+  .statcols .sc{flex:1; text-align:center; padding:0 14px; border-right:1px solid var(--line);}
+  .statcols .sc:last-child{border-right:none;}
+  .statcols .sc .v{font-size:42px; font-weight:770; color:var(--head); letter-spacing:-.02em; line-height:1;}
+  .statcols .sc .k{font-size:13.5px; color:var(--muted); margin-top:10px; line-height:1.35;}
+
+  .fig{border:1px solid var(--line2); border-radius:8px; padding:8px; background:#fff;}
+  .fig img{display:block; width:100%; height:auto; border-radius:4px;}
+  .fig.cap{text-align:center;}
+  .fig.cap img{width:auto; max-width:100%; max-height:452px; margin:0 auto;}
+  .figcap{font-size:13px; color:var(--faint); margin-top:8px;}
+
+  ul.pts{list-style:none;}
+  ul.pts li{position:relative; padding-left:22px; margin:12px 0; font-size:18px; color:var(--ink); line-height:1.42;}
+  ul.pts li::before{content:""; position:absolute; left:0; top:9px; width:7px; height:7px; border-radius:2px; background:var(--head);}
+  ul.pts li.r::before{background:var(--red)} ul.pts li.a::before{background:var(--amber)}
+  ul.pts li .sm{color:var(--muted); font-size:15px;}
+  .note{font-size:14px; color:var(--faint); line-height:1.45; margin-top:14px;}
+</style>
+</head>
+<body>
+<div id="wrap"><div id="stage">
+
+<!-- ============ 1 TITLE ============ -->
+<section class="slide" data-tpl="title" data-i="1">
+  <div class="tb tb-top"><span class="r"></span><span class="c"></span></div>
+  <div class="tb tb-bot"><span class="r"></span><span class="c"></span></div>
+  <div style="position:absolute; left:96px; right:96px; top:50%; transform:translateY(-50%); text-align:center;">
+    <h1 style="font-size:52px;">2026 AI·SW중심대학 디지털 경진대회</h1>
+    <p class="lead" style="margin:20px auto 0; text-align:center; font-size:24px;">AI Agent 행동(Action) 의사결정 예측 챌린지</p>
+  </div>
+  <img class="title-logo" src="assets/enc_logo_dark.png" alt="ENC Lab">
+</section>
+
+<!-- ============ 2 THE TASK ============ -->
+<section class="slide" data-tpl="content" data-i="2">
+  <div class="kicker">The task</div>
+  <h1>Given session information, predict agent's <span class="red">next action</span></h1>
+  <div class="hr"></div>
+  <div class="grid2" style="grid-template-columns:1fr 1fr;">
+    <div>
+      <div class="sublabel">Input Example</div>
+<div class="yamlwrap"><pre class="yaml"><span class="yk">session_meta</span>:
+  <span class="yk">user_tier</span>: <span class="yv">pro</span>
+  <span class="yk">language_pref</span>: <span class="yv">ko</span>
+  <span class="yk">turn_index</span>: <span class="yv">3</span>
+  <span class="yk">budget_tokens</span>: <span class="yv">48210</span>
+  <span class="yk">workspace</span>:
+    <span class="yk">git_dirty</span>: <span class="yv">true</span>
+    <span class="yk">last_ci</span>: <span class="yv">failed</span>
+    <span class="yk">open_files</span>: <span class="ys">[config.py, schema.yaml]</span>
+<span class="yk">history</span>:
+  <span class="yk">role</span>: user
+    <span class="yk">content</span>: <span class="ys">"Config 어디서 불러와?"</span>
+  <span class="yk">role</span>: assistant_action
+    <span class="yk">name</span>: <span class="yv">grep_search</span>
+    <span class="yk">args</span>: <span class="ys">{pattern: Config, scope: src/}</span>
+    <span class="yk">result_summary</span>: <span class="ys">"14 matches in 5 files"</span>
+<span class="yhl"><span class="yk">current_prompt</span>: <span class="ys">"그럼 그 파일 열어봐"</span></span></pre><div class="hbrace"></div><div class="hlabel">~12 History</div></div>
+    </div>
+    <div>
+      <div class="sublabel">Output — predict 1 of 14 actions</div>
+      <p class="mono" style="font-size:15px; line-height:2; color:var(--ink); white-space:nowrap;">
+        <span class="accent">read_file · grep_search · list_directory · glob_pattern</span><br>
+        <span class="amber">edit_file · write_file · apply_patch</span><br>
+        <span class="blue">run_bash · run_tests · lint_or_typecheck</span><br>
+        <span class="violet">ask_user · plan_task · web_search · respond_only</span>
+      </p>
+      <div class="sublabel" style="margin-top:24px;">Scale &amp; metric</div>
+      <table class="aca">
+        <tr><td>Training samples</td><td class="n"><b>70,000</b></td></tr>
+        <tr><td>Test samples</td><td class="n"><b>30,000</b></td></tr>
+        <tr><td>Language — ko / en / mixed</td><td class="n">64 / 25 / 10%</td></tr>
+        <tr><td>Action classes</td><td class="n"><b>14</b></td></tr>
+        <tr><td>Metric</td><td class="n"><b class="accent">macro-F1</b></td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 3 ENVELOPE ============ -->
+<section class="slide" data-tpl="content" data-i="3">
+  <div class="kicker">The deployment envelope</div>
+  <h1>The model constraints</h1>
+  <div class="hr"></div>
+  <div style="position:absolute; left:72px; right:72px; top:49%; transform:translateY(-50%);">
+  <p class="lead">The model must physically <b class="accent">fit and finish</b> — offline, on a fixed eval server.</p>
+  <div class="statcols mt30">
+    <div class="sc"><div class="v">T4</div><div class="k">16 GB VRAM · 3 vCPU · 12 GB RAM<br>a single modest GPU</div></div>
+    <div class="sc"><div class="v">≤ 10 min</div><div class="k">inference on 30,000 samples<br>→ ~50 samples / s</div></div>
+    <div class="sc"><div class="v">≤ 1 GB</div><div class="k">zipped submission<br>a 568M fp32 model is 1.8 GB</div></div>
+    <div class="sc"><div class="v red">offline</div><div class="k">no internet at inference<br>pip install only, ≤ 10 min</div></div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ 4 MODEL SEARCH ============ -->
+<section class="slide" data-tpl="content" data-i="4">
+  <div class="kicker">Step 1 · Finding a model</div>
+  <h1>Surveying HuggingFace for a multilingual backbone</h1>
+  <div class="hr"></div>
+  <p class="lead">We need a model that handles KO + EN, fits the T4 / 1 GB envelope, and is openly licensed. We <b class="accent">fine-tuned every shortlisted candidate</b> and selected the backbone by result.</p>
+  <div class="grid2 mt24" style="grid-template-columns:1.15fr .85fr; align-items:start;">
+    <div>
+      <div class="sublabel">Full fine-tune · calibrated val F1</div>
+      <table class="aca">
+        <tr><th>Candidate</th><th class="n">Params</th><th class="n">cal F1</th></tr>
+        <tr class="hi"><td>Qwen3-Embedding-0.6B</td><td class="n">596M</td><td class="n">0.7753</td></tr>
+        <tr><td>BAAI/bge-m3</td><td class="n">568M</td><td class="n">0.7568</td></tr>
+        <tr><td>gte-multilingual-base</td><td class="n">305M</td><td class="n">0.7361</td></tr>
+        <tr><td>KURE-v1 (KO bge-m3)</td><td class="n">568M</td><td class="n">0.7297</td></tr>
+        <tr><td>granite-311M</td><td class="n">311M</td><td class="n">0.7153</td></tr>
+        <tr><td>xlm-roberta-large</td><td class="n">561M</td><td class="n">0.7079</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="sublabel">Selection criteria</div>
+      <ul class="pts" style="margin-top:2px;">
+        <li style="font-size:17px;">Multilingual — KO + EN in one tokenizer</li>
+        <li style="font-size:17px;">≤ ~600M — fits T4 / 1 GB after pruning</li>
+        <li style="font-size:17px;">Open license — competition-safe</li>
+      </ul>
+      <div class="take mt24">Qwen3-0.6B scored highest, but we build on <b class="accent">bge-m3</b> and <b class="accent">granite</b> — they fit the envelope, and we're testing both for the final submission.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 5 EXPLORATION CATALOG ============ -->
+<section class="slide" data-tpl="content" data-i="5">
+  <div class="kicker">Step 2 · What we explored</div>
+  <h1>Methods we tried — results &amp; findings</h1>
+  <div class="hr"></div>
+  <p class="lead">On the shortlist we ran controlled experiments across every lever. Most were neutral or negative; a few paid off. The catalog:</p>
+  <table class="aca mt24">
+    <tr><th>Exploration</th><th>Result</th><th>Verdict</th></tr>
+    <tr><td>Prompted LLM + <b>guardrail</b></td><td class="muted">~0.30 F1 · 6 s/sample</td><td class="nbad">dropped (0.30 F1 ceiling, 300× too slow)</td></tr>
+    <tr class="hi"><td>Full fine-tune · <b>model sweep</b></td><td>champion 0.7753 · LB 0.767</td><td class="ngood">adopted</td></tr>
+    <tr><td><b>Logit calibration</b></td><td class="muted">+0.7 self-graded · ~0 honest</td><td>no practical benefit</td></tr>
+    <tr><td><b>Head variation</b> (depth / activation)</td><td class="muted">≤ ±0</td><td>changing head layers — no practical benefit</td></tr>
+    <tr><td><b>Input serialization</b> variations</td><td class="muted">some benefit</td><td>adopted — deep-dive §10</td></tr>
+    <tr class="hi"><td>Embedding + depth <b>pruning</b></td><td>−64% size · 1.85× faster · ~0 loss</td><td class="ngood">shipped</td></tr>
+  </table>
+  <div class="take mt24" style="font-size:17px;">Two findings shaped everything that followed: <b>(1)</b> the labels are weakly semantic — a learned-distribution task; <b>(2)</b> the ceiling is input information, not model capacity.</div>
+</section>
+
+<!-- ============ 6 WEAKLY SEMANTIC ============ -->
+<section class="slide" data-tpl="content" data-i="6">
+  <div class="kicker">Step 2 · Finding 1</div>
+  <h1>The labels are only <span class="red">weakly semantic</span></h1>
+  <div class="hr"></div>
+  <p class="lead">The "obvious" reading of a prompt is usually wrong. Across all 70k samples, the most indicative surface phrasings match their intuitive class only <b class="red">8–53%</b> of the time.</p>
+  <div class="grid2 mt30" style="grid-template-columns:1.15fr .85fr; align-items:start;">
+    <div>
+      <div class="sublabel">Surface phrasing → its "obvious" class</div>
+      <table class="aca">
+        <tr><td><span class="mono">"lint"</span> → lint_or_typecheck</td><td class="n nbad">15%</td></tr>
+        <tr><td><span class="mono">"best practice"</span> → web_search</td><td class="n nbad">20%</td></tr>
+        <tr><td><span class="mono">"plan / 계획 / 정리"</span> → plan_task</td><td class="n nbad">8%</td></tr>
+      </table>
+      <div class="note">Metadata alone (tier / CI / git-dirty) is near-useless as a predictor. The conventions are generator-specific.</div>
+    </div>
+    <div>
+      <div class="sublabel">What the capability ladder shows</div>
+      <div class="flow" style="margin-top:2px;">
+        <div class="step"><div class="v muted" style="font-size:27px;">≈0.30</div><div class="k">zero-shot LLM<br>≈ frozen probe</div></div>
+        <div class="arrow">→</div>
+        <div class="step"><div class="v" style="font-size:27px;">0.44</div><div class="k">LoRA<br>(steer)</div></div>
+        <div class="arrow">→</div>
+        <div class="step"><div class="v red" style="font-size:29px;">0.72+</div><div class="k">full-FT<br>(rewrite)</div></div>
+      </div>
+      <div class="take mt24">Common-sense mappings cap at ~0.30. Only rewriting the representations end-to-end learns the conventions — <b>this set our entire strategy</b>.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 7 DEPLOY SIZE ============ -->
+<section class="slide" data-tpl="content" data-i="8">
+  <div class="kicker">Step 2 · Finding 2 · deployment</div>
+  <h1>Embedding-vocab pruning: <span class="red">−64% size, zero accuracy loss</span></h1>
+  <div class="hr"></div>
+  <p class="lead">In a 568M encoder the 250k-row token-embedding matrix is half the file — but the synthetic data uses only <b class="accent">9,371 unique tokens</b>. The rest is dead weight we never trained.</p>
+  <div class="grid2 mt24" style="grid-template-columns:1.1fr .9fr; align-items:start;">
+    <div>
+      <div class="flow" style="margin-top:2px;">
+        <div class="step"><div class="v" style="color:var(--red); font-size:30px;">1.8 GB</div><div class="k">fp32, full vocab</div></div>
+        <div class="arrow">→</div>
+        <div class="step"><div class="v" style="font-size:30px;">1.14 GB</div><div class="k">fp16<br><span class="red">still over</span></div></div>
+        <div class="arrow">→</div>
+        <div class="step"><div class="v" style="font-size:32px;">655 MB</div><div class="k">fp16 + prune<br>250k→55k rows</div></div>
+      </div>
+      <table class="aca mt24">
+        <tr><td>24 transformer layers</td><td class="n">605 MB</td></tr>
+        <tr><td>token embeddings (250k)</td><td class="n nbad">512 MB</td></tr>
+        <tr><td>position emb + head</td><td class="n">19 MB</td></tr>
+      </table>
+    </div>
+    <div>
+      <div style="font-size:56px; font-weight:790; color:var(--head); line-height:1;">100.0000%</div>
+      <div class="muted" style="font-size:15px; margin-top:6px;">prediction agreement vs full-vocab fp32 (3k val)</div>
+      <div class="take mt24">Keep-set = used tokens ∪ specials ∪ first 50k ids. Pruned rows <b>never received gradients</b> — nothing learned is discarded. Held-out miss rate: 0.0004% of tokens.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 9 DEPLOY DEPTH ============ -->
+<section class="slide" data-tpl="content" data-i="9">
+  <div class="kicker">Step 2 · Finding 2 · deployment</div>
+  <h1>Depth pruning wins; width pruning loses</h1>
+  <div class="hr"></div>
+  <p class="lead">To hit the time budget with headroom, we studied where a trained encoder can be cut. The residual stream tolerates losing <b class="accent">depth</b> — but not <b class="red">width</b>.</p>
+  <div class="grid2 mt24">
+    <div>
+      <div class="sublabel" style="color:var(--head)">Depth prune — 24 → 12 layers</div>
+      <table class="aca">
+        <tr class="hi"><td>12L (evenly spaced + recover-FT)</td><td class="n ngood">0.7619</td></tr>
+        <tr><td>24L parent</td><td class="n">0.7568</td></tr>
+      </table>
+      <div class="take mt18">Half the layers scored <b class="good">above</b> the full model. LB-verified <b class="accent">2:29 / 388 MB</b> vs 4:35 / 654 MB → <b>1.85× faster, −41% storage</b>.</div>
+    </div>
+    <div>
+      <div class="sublabel red" style="color:var(--red)">Width prune — halve FFN + heads</div>
+      <table class="aca">
+        <tr><td>on 24L</td><td class="n nbad">collapsed</td></tr>
+        <tr><td>on 12L (trained fine)</td><td class="n nbad">0.6948 (−6.7)</td></tr>
+      </table>
+      <div class="take r mt18">Conclusion: the residual stream tolerates losing <b class="accent">depth, not width</b>.</div>
+    </div>
+  </div>
+  <div class="take a mt24" style="font-size:16px;"><b class="amber">Also measured:</b> int8 (bitsandbytes) is accuracy-neutral but <b class="red">1.56× slower</b> on T4-class GPUs — storage-only, not shipped. fp16 + length-sorted batching is the speed recipe (measured 4:27 for the 568M class).</div>
+</section>
+
+<!-- ============ 10 NARROWING ============ -->
+<section class="slide" data-tpl="content" data-i="10">
+  <div class="kicker">Step 3 · Narrowing the scope</div>
+  <h1>Where the remaining gains are — three levers</h1>
+  <div class="hr"></div>
+  <p class="lead">Model and recipe are fixed; the error analysis says the bottleneck is <b class="accent">input information, not capacity</b>. So the remaining work narrowed to three levers.</p>
+  <div class="grid2 mt30" style="grid-template-columns:1fr 1fr 1fr; gap:32px;">
+    <div>
+      <div class="tag">3-1</div>
+      <div class="sublabel" style="margin-top:14px; color:var(--head)">Input serialization</div>
+      <p class="body" style="font-size:16px;">Find the input format that preserves the most signal per token.</p>
+    </div>
+    <div>
+      <div class="tag">3-2</div>
+      <div class="sublabel" style="margin-top:14px; color:var(--head)">The confused groups</div>
+      <p class="body" style="font-size:16px;">Target the 3 action groups the model most often mixes up.</p>
+    </div>
+    <div>
+      <div class="tag">3-3</div>
+      <div class="sublabel" style="margin-top:14px; color:var(--head)">Ensemble</div>
+      <p class="body" style="font-size:16px;">Combine folds for free accuracy — within the deployment envelope.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 11 SERIALIZATION (3-1) ============ -->
+<section class="slide" data-tpl="content" data-i="11">
+  <div class="kicker">Step 3-1 · Input serialization</div>
+  <h1>The input has <span class="red">no removable fat</span></h1>
+  <div class="hr"></div>
+  <div class="grid2" style="grid-template-columns:1.05fr .95fr; align-items:start; gap:38px;">
+    <div>
+      <div class="fig"><img src="assets/serial_curves.png" alt="serialization per-epoch curves"></div>
+      <div class="figcap">Five controlled single-axis variants vs the full baseline (hist0). Gaps open at epoch 1 and hold.</div>
+    </div>
+    <div>
+      <table class="aca">
+        <tr><th>Remove / change</th><th class="n">cal F1</th><th class="n">Δ</th></tr>
+        <tr class="hi"><td>hist0 — full input</td><td class="n">0.7568</td><td class="n">—</td></tr>
+        <tr><td>double the prompt</td><td class="n">0.7516</td><td class="n nbad">−0.5</td></tr>
+        <tr><td>special action tokens</td><td class="n">0.7411</td><td class="n nbad">−1.6</td></tr>
+        <tr><td>drop metadata header</td><td class="n">0.7346</td><td class="n nbad">−2.2</td></tr>
+        <tr><td>lean history (verdicts)</td><td class="n">0.7291</td><td class="n nbad">−2.8</td></tr>
+        <tr><td>everything (combo)</td><td class="n">0.7169</td><td class="n nbad">−4.0</td></tr>
+      </table>
+      <div class="take mt18">Deltas are <b>additive</b> — no redundancy to exploit; compression strictly loses. One positive: atomic action tokens recover +1.2.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 12 CONFUSED GROUPS (3-2) ============ -->
+<section class="slide" data-tpl="content" data-i="12">
+  <div class="kicker">Step 3-2 · The confused action groups</div>
+  <h1>92% of errors sit in just <span class="red">3 action groups</span></h1>
+  <div class="hr"></div>
+  <div class="grid2" style="grid-template-columns:1.02fr .98fr; align-items:start; gap:38px;">
+    <div>
+      <div class="fig cap"><img src="assets/confusion_wrong_qwen3.png" alt="qwen3 confusion matrix"></div>
+      <div class="figcap" style="text-align:center;">Champion's wrong predictions (val, n=3,289) — errors cluster in dense on-diagonal blocks.</div>
+    </div>
+    <div>
+      <ul class="pts" style="margin-top:0;">
+        <li><b class="accent">Explore</b> {read · grep · list · glob} = <b>66%</b> of all errors <span class="sm">— grep↔read is the biggest pair (509+338)</span></li>
+        <li class="r"><b class="blue">Execute</b> {bash · tests · lint}</li>
+        <li class="a"><b class="violet">Non-code</b> {ask · plan · web}</li>
+      </ul>
+      <div class="take mt18">Both architectures' matrices are <b>structurally identical</b> → the ceiling is <b class="accent">input information, not capacity</b>.</div>
+      <div class="take r mt18">Our lever: <b class="red">atomic action-name tokens</b> (+1.2) and metadata enrichment, aimed squarely at these groups.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 13 ENSEMBLE (3-3) ============ -->
+<section class="slide" data-tpl="content" data-i="13">
+  <div class="kicker">Step 3-3 · Ensemble</div>
+  <h1>Enrich the input, <span class="red">ensemble the folds</span></h1>
+  <div class="hr"></div>
+  <p class="lead">In parallel, a teammate pushed a compact granite-311M (ModernBERT) line with a different serialization philosophy — and it produced our current team-best LB from a single fold.</p>
+  <div class="grid2 mt24">
+    <div>
+      <div class="sublabel">The "names" serialization</div>
+      <ul class="pts" style="margin-top:2px;">
+        <li style="font-size:17px;"><b>Bucketed metadata</b> <span class="sm">budget→very_low…high, elapsed→early/mid/late</span></li>
+        <li style="font-size:17px;"><b>Dominant language</b> from language_mix</li>
+        <li style="font-size:17px;"><b>Open-file basenames</b>, compact single-line @512</li>
+        <li style="font-size:17px;"><b>5-fold CV</b> with OOF-calibrated bias</li>
+      </ul>
+    </div>
+    <div>
+      <div class="sublabel" style="color:var(--head)">What we're adopting</div>
+      <div class="take"><b>1 · Metadata enrichment, not removal.</b> Our ablations proved every field helps (§10) — adding structured fields helps more.</div>
+      <div class="take mt18"><b>2 · Fold ensembling.</b> Depth-pruned 12L is 388 MB / 2:29 — small enough that a <b>2-fold ensemble still fits</b> the envelope.</div>
+    </div>
+  </div>
+  <div class="note" style="margin-top:22px;">Both converge with the error analysis: the bottleneck is input information (§11), so the payoff is richer, better-structured inputs — not larger models.</div>
+</section>
+
+<!-- ============ 14 TAKEAWAYS ============ -->
+<section class="slide" data-tpl="content" data-i="14">
+  <div class="kicker">Takeaways &amp; next steps</div>
+  <h1>What moved the number — and what's queued</h1>
+  <div class="hr"></div>
+  <div class="grid2" style="grid-template-columns:1.1fr .9fr; align-items:start;">
+    <div>
+      <div class="sublabel" style="color:var(--head)">What we established</div>
+      <ul class="pts" style="margin-top:2px;">
+        <li>This is a <b>learned-distribution</b> task — full fine-tuning drove <b>68.8 → 76.70</b>.</li>
+        <li>The ceiling is <b>input information, not capacity</b> — identical failures across architectures.</li>
+        <li>Compression is nearly free — <b>vocab + depth pruning</b> gave the same accuracy at 388 MB / 2:29.</li>
+        <li><b>Systematic elimination</b> — most standard "tricks" were neutral or negative; a few levers moved it.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="sublabel a" style="color:var(--amber)">Queued next</div>
+      <ul class="pts" style="margin-top:2px;">
+        <li class="a"><b>v1 + special tokens</b> <span class="sm">— the one positive ablation signal (+1.2)</span></li>
+        <li class="a"><b>richmeta</b> <span class="sm">— add location / elapsed / language-mix, bucketed</span></li>
+        <li class="a"><b>2-fold prune12 ensemble</b> <span class="sm">— fits the envelope, diversity for free</span></li>
+      </ul>
+      <div class="take mt24" style="border-color:var(--red);"><span style="font-size:32px; font-weight:790; color:var(--head);">0.7670</span><br><span class="muted" style="font-size:15px;">best single-model score (Qwen3-0.6B). Deployed track: bge-m3 + granite, in testing.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 15 END ============ -->
+<section class="slide" data-tpl="end" data-i="15">
+  <div class="tb tb-top"><span class="r"></span><span class="c"></span></div>
+  <div class="tb tb-bot"><span class="r"></span><span class="c"></span></div>
+  <img class="end-logo" src="assets/enc_logo_white.png" alt="ENC Lab">
+</section>
+
+</div></div>
+<script>
+  var slides=[].slice.call(document.querySelectorAll('.slide'));
+  var N=slides.length, stage=document.getElementById('stage');
+  // chrome injection for content slides
+  slides.forEach(function(s,idx){
+    if(s.dataset.tpl==='content'){
+      var l=document.createElement('img'); l.className='c-logo'; l.src='assets/enc_logo_dark.png';
+      var p=document.createElement('div'); p.className='c-pg'; p.textContent=idx+1;
+      s.appendChild(l); s.appendChild(p);
+    }
+  });
+  function fit(){ if(document.body.classList.contains('all'))return;
+    var sc=Math.min(innerWidth/1280, innerHeight/720); stage.style.transform='scale('+sc+')'; }
+  addEventListener('resize',fit);
+  var cur=(location.hash.match(/\d+/)||[1])[0]*1;
+  function show(i){ i=Math.max(1,Math.min(N,i)); slides.forEach(function(s,idx){s.classList.toggle('on',idx+1===i)}); if(history.replaceState)history.replaceState(null,'','#'+i); cur=i; }
+  show(cur); fit();
+  addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){show(cur+1);e.preventDefault();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){show(cur-1);e.preventDefault();}
+    else if(e.key==='Home')show(1); else if(e.key==='End')show(N);
+    else if(e.key==='f'||e.key==='F'){ if(!document.fullscreenElement)document.documentElement.requestFullscreen(); else document.exitFullscreen(); }
+    else if(e.key==='a'||e.key==='A'){ document.body.classList.toggle('all'); slides.forEach(function(s){s.classList.add('on')}); if(!document.body.classList.contains('all')){show(cur);} else {stage.style.transform='none';} }
+  });
+</script>
+</body>
+</html>
