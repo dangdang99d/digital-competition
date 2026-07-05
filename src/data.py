@@ -62,11 +62,17 @@ SERIALIZE_VARIANTS = {
     "dupprompt": {"dup_prompt": True},      # prompt text doubled inside the PROMPT line
     # all text axes at once (pair with --special_tokens for the full combo run)
     "combo":     {"drop_meta": True, "lean_actions": True, "dup_prompt": True},
+    # combo + bare action lines: "grep_search fail" — no ACTION marker, no ->.
+    # Only sensible WITH --special_tokens (action names are then atomic, so the
+    # line is 2 tokens and role is unambiguous from the leading name token).
+    "ultralean": {"drop_meta": True, "lean_actions": True, "dup_prompt": True,
+                  "bare_actions": True},
 }
 
 
 def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
-              drop_meta=False, lean_actions=False, dup_prompt=False):
+              drop_meta=False, lean_actions=False, dup_prompt=False,
+              bare_actions=False):
     """Flatten one sample to a single text string: session_meta + history + current_prompt.
 
     max_hist=None -> use the FULL history (no cap); an int caps to the last N events.
@@ -93,10 +99,12 @@ def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
             parts.append(f"USER: {t['content']}")
         elif lean_actions:
             if t["name"] in _NO_VERDICT_ACTIONS:
-                parts.append(f"ACTION {t['name']}")
+                line = t["name"]
             else:
                 ok = "ok" if _result_ok(t.get("result_summary", "")) else "fail"
-                parts.append(f"ACTION {t['name']} -> {ok}")
+                line = f"{t['name']} {ok}"
+            parts.append(line if bare_actions else
+                         "ACTION " + line.replace(" ", " -> ", 1))
         else:
             parts.append(
                 f"ACTION {t['name']}({t.get('args', {})}) -> {t.get('result_summary', '')}"
