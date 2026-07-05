@@ -46,7 +46,7 @@ SERIALIZE_VARIANTS = {
     "v1":        {},                        # the hist0-baseline format
     "nometa":    {"drop_meta": True},       # no [tier=... ci=...] header line
     "leanact":   {"lean_actions": True},    # ACTION name -> ok|fail (no args/summary)
-    "dupprompt": {"dup_prompt": True},      # PROMPT line emitted twice
+    "dupprompt": {"dup_prompt": True},      # prompt text doubled inside the PROMPT line
 }
 
 
@@ -83,8 +83,9 @@ def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
             parts.append(
                 f"ACTION {t['name']}({t.get('args', {})}) -> {t.get('result_summary', '')}"
             )
-    parts.append(f"PROMPT: {r['current_prompt']}")
     if dup_prompt:
+        parts.append(f"PROMPT: {r['current_prompt']} {r['current_prompt']}")
+    else:
         parts.append(f"PROMPT: {r['current_prompt']}")
     return "\n".join(parts)
 
