@@ -31,42 +31,72 @@ def load_samples(data_dir):
     return samples, y
 
 
-def serialize(r, max_hist=None, hist_dropout=0.0, rng=None):
+def _result_ok(rs):
+    """Collapse a result_summary to pass/fail. Fail = ERROR*/FAIL*/exit=nonzero;
+    everything else (ok/PASS/exit=0/counts/plans/questions) = ok."""
+    if rs.startswith(("ERROR", "FAIL")):
+        return False
+    if rs.startswith("exit="):
+        return rs.startswith("exit=0")
+    return True
+
+
+# Serialization ablation presets: each variant flips exactly ONE axis vs v1.
+SERIALIZE_VARIANTS = {
+    "v1":        {},                        # the hist0-baseline format
+    "nometa":    {"drop_meta": True},       # no [tier=... ci=...] header line
+    "leanact":   {"lean_actions": True},    # ACTION name -> ok|fail (no args/summary)
+    "dupprompt": {"dup_prompt": True},      # PROMPT line emitted twice
+}
+
+
+def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
+              drop_meta=False, lean_actions=False, dup_prompt=False):
     """Flatten one sample to a single text string: session_meta + history + current_prompt.
 
     max_hist=None -> use the FULL history (no cap); an int caps to the last N events.
     (Token-level truncation is still handled downstream by the tokenizer's max_len.)
     hist_dropout: training-time augmentation — drop each history event independently
     with this probability (needs rng, a np.random.Generator). Never use for eval.
+    drop_meta / lean_actions / dup_prompt: serialization-ablation axes, see
+    SERIALIZE_VARIANTS. Defaults reproduce v1 byte-for-byte.
     """
     sm = r["session_meta"]
     ws = sm["workspace"]
-    parts = [
-        f"[tier={sm['user_tier']} lang={sm['language_pref']} turn={sm['turn_index']} "
-        f"budget={sm['budget_tokens_remaining']} ci={ws['last_ci_status']} "
-        f"dirty={ws['git_dirty']} open={','.join(ws['open_files']) or '-'}]"
-    ]
+    parts = []
+    if not drop_meta:
+        parts.append(
+            f"[tier={sm['user_tier']} lang={sm['language_pref']} turn={sm['turn_index']} "
+            f"budget={sm['budget_tokens_remaining']} ci={ws['last_ci_status']} "
+            f"dirty={ws['git_dirty']} open={','.join(ws['open_files']) or '-'}]"
+        )
     hist = r["history"] if max_hist is None else r["history"][-max_hist:]
     if hist_dropout and rng is not None:
         hist = [t for t in hist if rng.random() >= hist_dropout]
     for t in hist:
         if t.get("role") == "user":
             parts.append(f"USER: {t['content']}")
+        elif lean_actions:
+            ok = "ok" if _result_ok(t.get("result_summary", "")) else "fail"
+            parts.append(f"ACTION {t['name']} -> {ok}")
         else:
             parts.append(
                 f"ACTION {t['name']}({t.get('args', {})}) -> {t.get('result_summary', '')}"
             )
     parts.append(f"PROMPT: {r['current_prompt']}")
+    if dup_prompt:
+        parts.append(f"PROMPT: {r['current_prompt']}")
     return "\n".join(parts)
 
 
-def build_texts(samples, input_mode="context", max_hist=None):
+def build_texts(samples, input_mode="context", max_hist=None, variant="v1"):
     """input_mode: 'context' = full serialized; 'prompt' = current_prompt only (baseline-style).
-    max_hist=None -> full history."""
+    max_hist=None -> full history. variant: a SERIALIZE_VARIANTS key."""
     if input_mode == "prompt":
         return [s["current_prompt"] or "" for s in samples]
     if input_mode == "context":
-        return [serialize(s, max_hist=max_hist) for s in samples]
+        kw = SERIALIZE_VARIANTS[variant]
+        return [serialize(s, max_hist=max_hist, **kw) for s in samples]
     raise ValueError(f"unknown input_mode: {input_mode}")
 
 

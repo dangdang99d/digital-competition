@@ -24,7 +24,8 @@ import torch
 from loguru import logger
 from sklearn.metrics import f1_score
 
-from src.data import ALL_CLASSES, CLASS_TO_ID, build_texts, load_samples, serialize, split_indices
+from src.data import (ALL_CLASSES, CLASS_TO_ID, SERIALIZE_VARIANTS, build_texts,
+                      load_samples, serialize, split_indices)
 
 
 def build_dataset(tok, texts, labels, max_len, desc="tokenizing", teacher=None):
@@ -62,11 +63,13 @@ def build_dataset(tok, texts, labels, max_len, desc="tokenizing", teacher=None):
     return DS()
 
 
-def build_dynamic_dataset(tok, samples_sub, labels, max_len, max_hist, hist_dropout, seed):
+def build_dynamic_dataset(tok, samples_sub, labels, max_len, max_hist, hist_dropout, seed,
+                          variant="v1"):
     """Train dataset that serializes + tokenizes per __getitem__, so each epoch sees a
     FRESH random history-event drop (static pre-tokenization would corrupt once).
     Per-sample tokenization is ~1ms — negligible next to a full-FT train step."""
     rng = np.random.default_rng(seed)
+    var_kw = SERIALIZE_VARIANTS[variant]
 
     class DS(torch.utils.data.Dataset):
         def __len__(self):
@@ -74,7 +77,7 @@ def build_dynamic_dataset(tok, samples_sub, labels, max_len, max_hist, hist_drop
 
         def __getitem__(self, i):
             text = serialize(samples_sub[i], max_hist=max_hist,
-                             hist_dropout=hist_dropout, rng=rng)
+                             hist_dropout=hist_dropout, rng=rng, **var_kw)
             e = tok(text, truncation=True, max_length=max_len, padding=False)
             return {
                 "input_ids": e["input_ids"],
@@ -351,6 +354,9 @@ def main():
     ap.add_argument("--input", default="context", choices=["context", "prompt"])
     ap.add_argument("--max_hist", type=int, default=0,
                     help="cap history to last N events; 0 = full history (no cap)")
+    ap.add_argument("--serialize", default="v1", choices=sorted(SERIALIZE_VARIANTS),
+                    help="input serialization variant (see data.SERIALIZE_VARIANTS); "
+                         "v1 = the hist0-baseline format")
     ap.add_argument("--max_len", type=int, default=512)
     ap.add_argument("--epochs", type=float, default=3.0)
     ap.add_argument("--lr", type=float, default=2e-5)          # full-FT needs a small LR
@@ -423,7 +429,8 @@ def main():
     # ---- data ----
     samples, y = load_samples(args.data_dir)
     max_hist = args.max_hist or None            # 0 -> None (full history)
-    texts = build_texts(samples, input_mode=args.input, max_hist=max_hist)
+    texts = build_texts(samples, input_mode=args.input, max_hist=max_hist,
+                        variant=args.serialize)
     y_ids = np.array([CLASS_TO_ID[a] for a in y])
     tr, va = split_indices(y, seed=args.seed)
     if args.full_data:
@@ -488,7 +495,8 @@ def main():
         assert not args.distill_from, "--hist_dropout + --distill_from not supported together"
         logger.info(f"history dropout p={args.hist_dropout} (fresh draw per epoch)")
         train_ds = build_dynamic_dataset(tok, [samples[i] for i in tr], y_ids[tr],
-                                         args.max_len, max_hist, args.hist_dropout, args.seed)
+                                         args.max_len, max_hist, args.hist_dropout, args.seed,
+                                         variant=args.serialize)
     else:
         train_ds = build_dataset(tok, [texts[i] for i in tr], y_ids[tr], args.max_len,
                                  teacher=teacher[tr] if teacher is not None else None)
@@ -561,7 +569,7 @@ def main():
            "head": f"mlp{args.head_layers}_{args.head_act}" if args.head_layers else "linear",
            "epochs": args.epochs, "lr": args.lr, "val_macro_f1": round(float(val_f1), 4),
            "calibrated_macro_f1": round(float(tuned_f1), 4),
-           "tag": args.tag, "max_len": args.max_len,
+           "tag": args.tag, "max_len": args.max_len, "serialize": args.serialize,
            "init_from": args.init_from, "full_data": args.full_data}
     out_csv = os.path.join(args.out_dir, args.results_name)
     write_header = not os.path.exists(out_csv)
