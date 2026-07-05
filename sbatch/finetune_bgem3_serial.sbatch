@@ -18,9 +18,10 @@
 #   task 1  leanact:   ACTION name -> ok|fail (args/summaries dropped, verdict
 #                      rule v2; markers kept — bare lines are combo-only)
 #   task 2  dupprompt: prompt text doubled inside the PROMPT line
-#   task 3  spectok:   v1 text + 17 atomic tokens (14 action names + ACTION/
-#                      USER:/PROMPT: markers, mean-of-pieces init) — tokenizer
-#                      axis only; ship the RUN-DIR tokenizer at inference
+#   task 3  spectok:   bare action lines "grep_search fail" + 17 atomic tokens
+#                      (14 action names + ACTION/USER:/PROMPT: markers, mean-of-
+#                      pieces init) — the fully-compressed action representation;
+#                      ship the RUN-DIR tokenizer at inference
 #   Results: output/pat/ft_results_serial_<task>.csv
 #   Weights: output/pat/ft_BAAI__bge-m3_ser_{nometa,leanact,dupprompt,spectok}/
 
@@ -29,7 +30,7 @@ set -euo pipefail
 cd /NAS2/ksjang0515/dacon
 mkdir -p sbatch/logs output/pat
 
-VARIANTS=(nometa leanact dupprompt v1)
+VARIANTS=(nometa leanact dupprompt bareact)
 TAGS=(nometa leanact dupprompt spectok)
 EXTRA=("" "" "" "--special_tokens")
 VAR="${VARIANTS[$SLURM_ARRAY_TASK_ID]}"

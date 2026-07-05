@@ -71,6 +71,9 @@ SERIALIZE_VARIANTS = {
     # (combo): without them the "role from leading name token" argument fails.
     "leanact":   {"lean_actions": True},
     "dupprompt": {"dup_prompt": True},      # prompt text doubled inside the PROMPT line
+    # bare compressed action lines: "grep_search fail" — no ACTION/-> markers.
+    # ALWAYS pair with --special_tokens (atomic names carry the line's role).
+    "bareact":   {"lean_actions": True, "bare_actions": True},
     # all axes at once (pair with --special_tokens for the full combo run)
     "combo":     {"drop_meta": True, "lean_actions": True, "dup_prompt": True,
                   "bare_actions": True},
