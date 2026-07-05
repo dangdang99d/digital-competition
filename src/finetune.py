@@ -359,14 +359,22 @@ def add_action_tokens(tok, model):
     new_tokens = list(ALL_CLASSES) + ["ACTION", "USER:", "PROMPT:"]
     piece_ids = {t: tok(t, add_special_tokens=False)["input_ids"] for t in new_tokens}
     n_added = tok.add_tokens(new_tokens)
+    # when continuing from a checkpoint that ALREADY has the extra rows
+    # (--init_from a spectok run), resize is a no-op and the trained embeddings
+    # must NOT be re-initialized — only init rows that did not exist before.
+    old_rows = model.get_input_embeddings().weight.shape[0]
     model.resize_token_embeddings(len(tok))
+    inited = 0
     with torch.no_grad():
         w = model.get_input_embeddings().weight
         for t in new_tokens:
             new_id = tok.convert_tokens_to_ids(t)
-            w[new_id] = w[piece_ids[t]].mean(dim=0)
-    logger.info(f"added {n_added} atomic action/marker tokens "
-                f"(vocab {len(tok) - n_added} -> {len(tok)}), mean-of-pieces init")
+            if new_id >= old_rows:
+                w[new_id] = w[piece_ids[t]].mean(dim=0)
+                inited += 1
+    logger.info(f"atomic action/marker tokens: {n_added} added to tokenizer "
+                f"(vocab -> {len(tok)}), {inited} embedding rows mean-of-pieces "
+                f"initialized ({n_added - inited} pre-trained rows kept)")
 
 
 def main():
