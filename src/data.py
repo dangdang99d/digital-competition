@@ -66,14 +66,12 @@ def _result_ok(rs):
 SERIALIZE_VARIANTS = {
     "v1":        {},                        # the hist0-baseline format
     "nometa":    {"drop_meta": True},       # no [tier=... ci=...] header line
-    "leanact":   {"lean_actions": True},    # ACTION name -> ok|fail (no args/summary)
+    # bare compressed action lines: "grep_search fail" — args/summary dropped
+    # (verdict rule v2), no ACTION marker, no ->; ask_user/plan_task bare names
+    "leanact":   {"lean_actions": True, "bare_actions": True},
     "dupprompt": {"dup_prompt": True},      # prompt text doubled inside the PROMPT line
-    # all text axes at once (pair with --special_tokens for the full combo run)
-    "combo":     {"drop_meta": True, "lean_actions": True, "dup_prompt": True},
-    # combo + bare action lines: "grep_search fail" — no ACTION marker, no ->.
-    # Only sensible WITH --special_tokens (action names are then atomic, so the
-    # line is 2 tokens and role is unambiguous from the leading name token).
-    "ultralean": {"drop_meta": True, "lean_actions": True, "dup_prompt": True,
+    # all axes at once (pair with --special_tokens for the full combo run)
+    "combo":     {"drop_meta": True, "lean_actions": True, "dup_prompt": True,
                   "bare_actions": True},
 }
 

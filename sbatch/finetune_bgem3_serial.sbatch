@@ -15,8 +15,8 @@
 # flips exactly ONE axis of the serialized string; recipe otherwise IDENTICAL
 # to hist0 (@1024, lr 2e-5, eff. batch 16, 3 epochs, seed 42).
 #   task 0  nometa:    no [tier=... ci=... open=...] header line
-#   task 1  leanact:   ACTION name -> ok|fail (args/summaries dropped; ask_user/
-#                      plan_task bare; empty search results = fail)
+#   task 1  leanact:   bare action lines "grep_search fail" (args/summaries
+#                      dropped, verdict rule v2, no ACTION/-> markers)
 #   task 2  dupprompt: prompt text doubled inside the PROMPT line
 #   task 3  spectok:   v1 text + 17 atomic tokens (14 action names + ACTION/
 #                      USER:/PROMPT: markers, mean-of-pieces init) — tokenizer
