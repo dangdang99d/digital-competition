@@ -6,6 +6,7 @@ Shared by the linear-probe experiments. The task: predict an AI coding agent's n
 import csv
 import json
 import os
+import re
 
 import numpy as np
 from sklearn.metrics import f1_score
@@ -39,17 +40,24 @@ _NO_VERDICT_ACTIONS = ("ask_user", "plan_task")
 # Empty search/listing results ("found nothing") count as fail: the verdict means
 # "did this advance the task", not "did the tool crash". Leading-count check keeps
 # "3 entries (0 files, 3 dirs)" ok while "0 entries (0 files, 0 dirs)" fails.
-_EMPTY_RESULT_PREFIXES = ("0 ", "no matches", "empty directory", "found 0 ")
+# "no relevant results" = web_search's empty phrasing (misses the other prefixes).
+_EMPTY_RESULT_PREFIXES = ("0 ", "no matches", "empty directory", "found 0 ",
+                          "no relevant results")
+# lint_or_typecheck reports "N errors, M files affected" (N>=1 in the data);
+# finding errors = the check failed, by analogy with "FAIL: N tests failing".
+_LINT_ERRORS_RE = re.compile(r"[1-9]\d* errors?,")
 
 
 def _result_ok(rs):
     """Collapse a result_summary to pass/fail. Fail = ERROR*/FAIL*/exit=nonzero/
-    empty search result; everything else (ok/PASS/exit=0/counts) = ok."""
+    empty search result/lint errors; everything else (ok/PASS/exit=0/counts) = ok."""
     if rs.startswith(("ERROR", "FAIL")):
         return False
     if rs.startswith("exit="):
         return rs.startswith("exit=0")
     if rs.startswith(_EMPTY_RESULT_PREFIXES):
+        return False
+    if _LINT_ERRORS_RE.match(rs):
         return False
     return True
 
