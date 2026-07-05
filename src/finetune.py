@@ -347,6 +347,28 @@ def make_distill_trainer(trainer_cls, alpha, temperature):
     return _DistillTrainer
 
 
+def add_action_tokens(tok, model):
+    """Add the 14 action names + serialization markers as ATOMIC tokens.
+
+    Without this, bge-m3's sentencepiece splits every action name into 3-7 pieces
+    ('lint_or_typecheck' -> 7). Each new token gets ONE embedding row, initialized
+    to the MEAN of the piece embeddings it replaces — training starts from the
+    compositional representation instead of random. The tokenizer must be saved
+    with the run (save_pretrained) and shipped at inference, or the ids shift.
+    """
+    new_tokens = list(ALL_CLASSES) + ["ACTION", "USER:", "PROMPT:"]
+    piece_ids = {t: tok(t, add_special_tokens=False)["input_ids"] for t in new_tokens}
+    n_added = tok.add_tokens(new_tokens)
+    model.resize_token_embeddings(len(tok))
+    with torch.no_grad():
+        w = model.get_input_embeddings().weight
+        for t in new_tokens:
+            new_id = tok.convert_tokens_to_ids(t)
+            w[new_id] = w[piece_ids[t]].mean(dim=0)
+    logger.info(f"added {n_added} atomic action/marker tokens "
+                f"(vocab {len(tok) - n_added} -> {len(tok)}), mean-of-pieces init")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_dir", default="./data")
@@ -357,6 +379,10 @@ def main():
     ap.add_argument("--serialize", default="v1", choices=sorted(SERIALIZE_VARIANTS),
                     help="input serialization variant (see data.SERIALIZE_VARIANTS); "
                          "v1 = the hist0-baseline format")
+    ap.add_argument("--special_tokens", action="store_true",
+                    help="add the 14 action names + ACTION/USER:/PROMPT: markers as "
+                         "single tokens (mean-of-pieces embedding init); the run-dir "
+                         "tokenizer must then be used at inference")
     ap.add_argument("--max_len", type=int, default=512)
     ap.add_argument("--epochs", type=float, default=3.0)
     ap.add_argument("--lr", type=float, default=2e-5)          # full-FT needs a small LR
@@ -468,6 +494,8 @@ def main():
         ignore_mismatched_sizes=True,
     )
     model.config.pad_token_id = tok.pad_token_id
+    if args.special_tokens:
+        add_action_tokens(tok, model)
     if args.reinit_layers:
         reinit_top_layers(model, args.reinit_layers)
     if args.keep_layers:
@@ -509,6 +537,10 @@ def main():
     # handles imbalance via post-hoc logit-bias calibration instead.
     safe = args.model.replace("/", "__") + (f"_{args.tag}" if args.tag else "")
     run_dir = os.path.join(args.out_dir, f"ft_{safe}")
+    # persist the tokenizer with the run: with --special_tokens the vocab differs
+    # from the hub's, and inference MUST load this copy or every id past the old
+    # vocab end is wrong. Saved unconditionally — harmless for stock runs.
+    tok.save_pretrained(run_dir)
     # bf16 where the GPU supports it (Ampere+: 3090/4090). fp16 NaN-diverged
     # Qwen3-0.6B on pat (loss -> 0.0, grad_norm NaN mid-epoch-1) while the same
     # recipe was fine for granite — LLM-style backbones overflow fp16's range.
@@ -570,6 +602,7 @@ def main():
            "epochs": args.epochs, "lr": args.lr, "val_macro_f1": round(float(val_f1), 4),
            "calibrated_macro_f1": round(float(tuned_f1), 4),
            "tag": args.tag, "max_len": args.max_len, "serialize": args.serialize,
+           "special_tokens": args.special_tokens,
            "init_from": args.init_from, "full_data": args.full_data}
     out_csv = os.path.join(args.out_dir, args.results_name)
     write_header = not os.path.exists(out_csv)
