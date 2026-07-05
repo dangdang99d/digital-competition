@@ -31,13 +31,26 @@ def load_samples(data_dir):
     return samples, y
 
 
+# Actions whose result never varies (ask_user: "clarifying question sent to user",
+# plan_task: "plan with N steps drafted") — the verdict carries zero information,
+# so lean serialization emits them with no "-> ok" suffix at all.
+_NO_VERDICT_ACTIONS = ("ask_user", "plan_task")
+
+# Empty search/listing results ("found nothing") count as fail: the verdict means
+# "did this advance the task", not "did the tool crash". Leading-count check keeps
+# "3 entries (0 files, 3 dirs)" ok while "0 entries (0 files, 0 dirs)" fails.
+_EMPTY_RESULT_PREFIXES = ("0 ", "no matches", "empty directory", "found 0 ")
+
+
 def _result_ok(rs):
-    """Collapse a result_summary to pass/fail. Fail = ERROR*/FAIL*/exit=nonzero;
-    everything else (ok/PASS/exit=0/counts/plans/questions) = ok."""
+    """Collapse a result_summary to pass/fail. Fail = ERROR*/FAIL*/exit=nonzero/
+    empty search result; everything else (ok/PASS/exit=0/counts) = ok."""
     if rs.startswith(("ERROR", "FAIL")):
         return False
     if rs.startswith("exit="):
         return rs.startswith("exit=0")
+    if rs.startswith(_EMPTY_RESULT_PREFIXES):
+        return False
     return True
 
 
@@ -77,8 +90,11 @@ def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
         if t.get("role") == "user":
             parts.append(f"USER: {t['content']}")
         elif lean_actions:
-            ok = "ok" if _result_ok(t.get("result_summary", "")) else "fail"
-            parts.append(f"ACTION {t['name']} -> {ok}")
+            if t["name"] in _NO_VERDICT_ACTIONS:
+                parts.append(f"ACTION {t['name']}")
+            else:
+                ok = "ok" if _result_ok(t.get("result_summary", "")) else "fail"
+                parts.append(f"ACTION {t['name']} -> {ok}")
         else:
             parts.append(
                 f"ACTION {t['name']}({t.get('args', {})}) -> {t.get('result_summary', '')}"
