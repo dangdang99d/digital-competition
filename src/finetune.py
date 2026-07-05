@@ -24,14 +24,16 @@ import torch
 from loguru import logger
 from sklearn.metrics import f1_score
 
-from src.data import ALL_CLASSES, CLASS_TO_ID, build_texts, load_samples, split_indices
+from src.data import ALL_CLASSES, CLASS_TO_ID, build_texts, load_samples, serialize, split_indices
 
 
-def build_dataset(tok, texts, labels, max_len, desc="tokenizing"):
+def build_dataset(tok, texts, labels, max_len, desc="tokenizing", teacher=None):
     """Tokenize once; return a torch Dataset yielding input_ids/attention_mask/labels.
 
     Tokenizes in chunks with a tqdm bar (works in a terminal and prints periodic
     updates to an sbatch log file).
+    teacher: optional (N, num_classes) float array of teacher logits (distillation);
+    added to each item as "teacher_logits".
     """
     from tqdm.auto import tqdm
 
@@ -48,9 +50,35 @@ def build_dataset(tok, texts, labels, max_len, desc="tokenizing"):
             return len(labels)
 
         def __getitem__(self, i):
-            return {
+            item = {
                 "input_ids": enc["input_ids"][i],
                 "attention_mask": enc["attention_mask"][i],
+                "labels": int(labels[i]),
+            }
+            if teacher is not None:
+                item["teacher_logits"] = teacher[i]
+            return item
+
+    return DS()
+
+
+def build_dynamic_dataset(tok, samples_sub, labels, max_len, max_hist, hist_dropout, seed):
+    """Train dataset that serializes + tokenizes per __getitem__, so each epoch sees a
+    FRESH random history-event drop (static pre-tokenization would corrupt once).
+    Per-sample tokenization is ~1ms — negligible next to a full-FT train step."""
+    rng = np.random.default_rng(seed)
+
+    class DS(torch.utils.data.Dataset):
+        def __len__(self):
+            return len(labels)
+
+        def __getitem__(self, i):
+            text = serialize(samples_sub[i], max_hist=max_hist,
+                             hist_dropout=hist_dropout, rng=rng)
+            e = tok(text, truncation=True, max_length=max_len, padding=False)
+            return {
+                "input_ids": e["input_ids"],
+                "attention_mask": e["attention_mask"],
                 "labels": int(labels[i]),
             }
 
@@ -71,14 +99,17 @@ def _macro_f1(logits, labels, bias):
                     average="macro", zero_division=0)
 
 
-def calibrate_logit_bias(logits, labels, rounds=3, grid=None):
+def calibrate_logit_bias(logits, labels, rounds=50, grid=None):
     """Post-hoc per-class logit bias tuned on val to maximize Macro-F1 (73.07 trick).
 
     Coordinate ascent: for each class, try a grid of additive biases and keep the
     value that improves val Macro-F1. Returns (bias_vector, base_f1, tuned_f1).
+    rounds=50/step .02: best honest performer in analysis/calibration_methods.py
+    (2-fold: 0.7385 vs 0.7376 current, vs 0.7340 for overfit-prone matrix scaling).
+    Converges early via the no-improvement break, so cost stays ~1-2 min.
     """
     if grid is None:
-        grid = np.round(np.arange(-2.0, 2.01, 0.05), 2)
+        grid = np.round(np.arange(-2.0, 2.001, 0.02), 3)
     n = len(ALL_CLASSES)
     bias = np.zeros(n, dtype=np.float32)
     base = _macro_f1(logits, labels, bias)
@@ -99,6 +130,218 @@ def calibrate_logit_bias(logits, labels, rounds=3, grid=None):
         if not improved:
             break
     return bias, base, best
+
+
+import re as _re
+
+_LAYER_RE = _re.compile(r"\.layers?\.(\d+)\.")
+
+
+def _layer_depth(model):
+    """Number of encoder layers, inferred from parameter names."""
+    idxs = [int(m.group(1)) for n, _ in model.named_parameters() if (m := _LAYER_RE.search(n))]
+    return max(idxs) + 1 if idxs else 0
+
+
+def build_llrd_optimizer(model, base_lr, decay, optim_name, weight_decay):
+    """Optimizer with layer-wise LR decay: layer i gets base_lr * decay^(depth-1-i);
+    embeddings get one step lower; head/pooler get full base_lr."""
+    depth = _layer_depth(model)
+    groups = {}
+    for n, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        m = _LAYER_RE.search(n)
+        if m:
+            lr = base_lr * decay ** (depth - 1 - int(m.group(1)))
+        elif "embed" in n:
+            lr = base_lr * decay ** depth
+        else:                       # head / pooler / final norms
+            lr = base_lr
+        groups.setdefault(round(lr, 12), []).append(p)
+    param_groups = [{"params": ps, "lr": lr} for lr, ps in groups.items()]
+    logger.info(f"LLRD: {len(param_groups)} LR groups, "
+                f"min={min(g['lr'] for g in param_groups):.2e} max={base_lr:.2e}")
+    if optim_name == "adafactor":
+        from transformers.optimization import Adafactor
+        return Adafactor(param_groups, lr=base_lr, scale_parameter=False,
+                         relative_step=False, warmup_init=False, weight_decay=weight_decay)
+    return torch.optim.AdamW(param_groups, lr=base_lr, weight_decay=weight_decay)
+
+
+def reinit_top_layers(model, n):
+    """Re-initialize the top n encoder layers (fresh start for task-specific tops)."""
+    layer_lists = [mod for name, mod in model.named_modules()
+                   if name.endswith(("encoder.layer", "encoder.layers", "model.layers"))]
+    assert layer_lists, "could not locate the encoder layer list for --reinit_layers"
+    layers = layer_lists[0]
+    for layer in list(layers)[-n:]:
+        layer.apply(model._init_weights)
+    logger.info(f"re-initialized top {n} encoder layers")
+
+
+def prune_layers(model, keep):
+    """Structured depth pruning: keep `keep` evenly-spaced encoder layers (always
+    including the first and last), drop the rest. config.num_hidden_layers is updated
+    so the pruned checkpoint reloads with from_pretrained. Pair with --init_from to
+    prune a trained model and fine-tune to recover."""
+    hit = next(((name, mod) for name, mod in model.named_modules()
+                if name.endswith(("encoder.layer", "encoder.layers", "model.layers"))), None)
+    assert hit, "could not locate the encoder layer list for --keep_layers"
+    list_name, layers = hit
+    depth = len(layers)
+    assert keep < depth, f"--keep_layers {keep} >= model depth {depth}"
+    idx = sorted(set(np.round(np.linspace(0, depth - 1, keep)).astype(int).tolist()))
+    parent = model.get_submodule(list_name.rsplit(".", 1)[0])
+    setattr(parent, list_name.rsplit(".", 1)[1],
+            torch.nn.ModuleList([layers[i] for i in idx]))
+    model.config.num_hidden_layers = len(idx)
+    logger.info(f"pruned encoder depth {depth} -> {len(idx)} (kept layers {idx})")
+
+
+class DistillCollator:
+    """Wrap DataCollatorWithPadding: teacher_logits can't go through tokenizer.pad,
+    so pop them, pad the rest, and re-attach as a stacked float tensor."""
+
+    def __init__(self, base):
+        self.base = base
+
+    def __call__(self, features):
+        teacher = [f.pop("teacher_logits", None) for f in features]
+        batch = self.base(features)
+        if teacher[0] is not None:
+            batch["teacher_logits"] = torch.tensor(np.stack(teacher), dtype=torch.float32)
+        return batch
+
+
+def prune_ffn(model, keep_ratio):
+    """Structured width pruning of every FFN: keep the top keep_ratio intermediate
+    neurons by |W_in row| * |W_out col| (throughput proxy), slice both matrices.
+    config.intermediate_size is updated so the checkpoint reloads cleanly."""
+    import torch.nn as nn
+
+    k = None
+    n_pruned = 0
+    for name, layer in model.named_modules():
+        if not (hasattr(layer, "intermediate") and hasattr(layer, "output")):
+            continue
+        if not (hasattr(layer.intermediate, "dense") and hasattr(layer.output, "dense")):
+            continue
+        w_in, w_out = layer.intermediate.dense, layer.output.dense
+        inter = w_in.out_features
+        k = max(1, int(round(inter * keep_ratio)))
+        score = w_in.weight.data.norm(dim=1) * w_out.weight.data.norm(dim=0)
+        idx = torch.topk(score, k).indices.sort().values
+        new_in = nn.Linear(w_in.in_features, k)
+        new_in.weight.data = w_in.weight.data[idx].clone()
+        new_in.bias.data = w_in.bias.data[idx].clone()
+        new_out = nn.Linear(k, w_out.out_features)
+        new_out.weight.data = w_out.weight.data[:, idx].clone()
+        new_out.bias.data = w_out.bias.data.clone()
+        layer.intermediate.dense, layer.output.dense = new_in, new_out
+        n_pruned += 1
+    assert n_pruned, "no intermediate/output FFN pairs found for --ffn_keep"
+    model.config.intermediate_size = k
+    logger.info(f"FFN width pruned in {n_pruned} layers: {inter} -> {k} neurons")
+
+
+def prune_attn_heads(model, keep_ratio):
+    """Drop the least important attention heads per layer (|W_v head| * |W_o head|
+    proxy) via HF's model.prune_heads; config.pruned_heads records the surgery so
+    from_pretrained reloads correctly. Call AFTER prune_layers (indices re-read)."""
+    n_heads = model.config.num_attention_heads
+    k = max(1, int(round(n_heads * keep_ratio)))
+    to_prune = {}
+    for name, mod in model.named_modules():
+        if not name.endswith("attention.self"):
+            continue
+        layer_idx = int(name.split(".layer.")[1].split(".")[0])
+        hd = mod.attention_head_size
+        out = model.get_submodule(name.rsplit(".self", 1)[0] + ".output.dense")
+        scores = [(mod.value.weight.data[h * hd:(h + 1) * hd].norm()
+                   * out.weight.data[:, h * hd:(h + 1) * hd].norm()).item()
+                  for h in range(n_heads)]
+        to_prune[layer_idx] = sorted(range(n_heads), key=scores.__getitem__)[:n_heads - k]
+    assert to_prune, "no attention.self modules found for --heads_keep"
+    model.prune_heads(to_prune)
+    logger.info(f"attention heads pruned in {len(to_prune)} layers: {n_heads} -> {k}")
+
+
+def replace_head(model, n_layers, act="gelu"):
+    """Swap the classification head for an n_layers MLP (act nonlinearity, dropout
+    between).
+
+    Handles both head styles:
+      - Qwen3-style `model.score`: applied per-token, the model selects the last
+        non-pad position afterwards -> plain Sequential works token-wise.
+      - XLM-R-style `model.classifier`: called with the full sequence output and
+        pools [CLS] internally -> wrapper reproduces the features[:, 0] selection.
+        (NOTE: the stock XLM-R head is already dense+tanh+out_proj, i.e. ~2 layers;
+        n_layers=3 is the genuinely deeper variant there.)
+    """
+    import torch.nn as nn
+
+    hidden = model.config.hidden_size
+    p = getattr(model.config, "classifier_dropout", None) or 0.1
+    num_labels = model.config.num_labels
+
+    act_layer = {"gelu": nn.GELU, "tanh": nn.Tanh}[act]
+
+    def mlp():
+        layers, in_dim = [], hidden
+        for _ in range(n_layers - 1):
+            layers += [nn.Dropout(p), nn.Linear(in_dim, hidden), act_layer()]
+            in_dim = hidden
+        layers += [nn.Dropout(p), nn.Linear(in_dim, num_labels)]
+        return nn.Sequential(*layers)
+
+    if hasattr(model, "score"):
+        model.score = mlp()
+        new = model.score
+    elif hasattr(model, "classifier"):
+        class CLSHead(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.mlp = mlp()
+
+            def forward(self, features, **kwargs):
+                x = features[:, 0, :] if features.dim() == 3 else features
+                return self.mlp(x)
+
+        model.classifier = CLSHead()
+        new = model.classifier
+    else:
+        raise AssertionError("no .score or .classifier head found for --head_layers")
+    new.apply(model._init_weights)
+    # recorded so downstream loaders can reconstruct: plain from_pretrained rebuilds
+    # the STOCK head and silently drops classifier.mlp.* weights. To reload a custom-
+    # head checkpoint: build the base model, call replace_head(m, **config.custom_head
+    # values), then load the safetensors state dict.
+    model.config.custom_head = {"layers": n_layers, "act": act}
+    logger.info(f"replaced classification head with {n_layers}-layer {act} MLP (dropout {p})")
+
+
+def make_distill_trainer(trainer_cls, alpha, temperature):
+    import torch.nn.functional as F
+
+    class _DistillTrainer(trainer_cls):
+        """loss = (1-alpha)*CE(student, y) + alpha*T^2*KL(teacher_T || student_T).
+        Eval batches carry no teacher_logits -> plain CE there."""
+
+        def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+            teacher_logits = inputs.pop("teacher_logits", None)
+            outputs = model(**inputs)
+            loss = outputs.loss
+            if teacher_logits is not None:
+                kd = F.kl_div(
+                    F.log_softmax(outputs.logits.float() / temperature, dim=-1),
+                    F.softmax(teacher_logits / temperature, dim=-1),
+                    reduction="batchmean",
+                ) * temperature ** 2
+                loss = (1.0 - alpha) * loss + alpha * kd
+            return (loss, outputs) if return_outputs else loss
+
+    return _DistillTrainer
 
 
 def main():
@@ -123,6 +366,50 @@ def main():
                     help="results CSV filename; give each array task a unique one to "
                          "avoid concurrent-append races")
     ap.add_argument("--limit", type=int, default=0, help="cap train+val size (0=all); for quick tests")
+    ap.add_argument("--init_from", default="",
+                    help="path to a fine-tuned checkpoint dir to CONTINUE training from "
+                         "(weights load from here; --model still names the tokenizer/base)")
+    ap.add_argument("--full_data", action="store_true",
+                    help="fold 75%% of the val split into training; the remaining 25%% "
+                         "(stratified) stays held out for eval + calibration. Safe to combine "
+                         "with --init_from: the checkpoint only ever saw the train split")
+    ap.add_argument("--tag", default="",
+                    help="suffix for the run dir (ft_<model>_<tag>) so reruns don't clobber "
+                         "earlier checkpoints of the same model")
+    ap.add_argument("--keep_checkpoints", type=int, default=1,
+                    help="how many epoch checkpoints to keep (save_total_limit). Set >1 to "
+                         "enable post-hoc SWA averaging (analysis/swa_average.py); those "
+                         "checkpoints are saved model-only (no optimizer state) to spare disk")
+    ap.add_argument("--llrd", type=float, default=0.0,
+                    help="layer-wise LR decay factor (e.g. 0.9): layer i gets lr*decay^(depth-i); "
+                         "embeddings lowest, head full lr. 0 = off (uniform lr)")
+    ap.add_argument("--reinit_layers", type=int, default=0,
+                    help="re-initialize the top N encoder layers before training (retrieval-"
+                         "pretrained tops may transfer worse than a fresh start)")
+    ap.add_argument("--hist_dropout", type=float, default=0.0,
+                    help="training-time augmentation: drop each history event with this "
+                         "probability, re-drawn every epoch (val is never dropped)")
+    ap.add_argument("--keep_layers", type=int, default=0,
+                    help="depth-prune the encoder to N evenly-spaced layers before training "
+                         "(0 = off). Pair with --init_from for prune-then-recover")
+    ap.add_argument("--distill_from", default="",
+                    help="path to a .npz with key 'logits' of shape (n_samples, 14) in "
+                         "load_samples order — teacher logits for distillation "
+                         "(dump with src/dump_logits.py)")
+    ap.add_argument("--distill_alpha", type=float, default=0.5,
+                    help="weight of the KD term: loss = (1-a)*CE + a*T^2*KL")
+    ap.add_argument("--distill_T", type=float, default=2.0, help="distillation temperature")
+    ap.add_argument("--head_layers", type=int, default=0,
+                    help="replace the classification head with an N-layer GELU MLP "
+                         "(0 = keep the model's stock head)")
+    ap.add_argument("--head_act", default="gelu", choices=["gelu", "tanh"],
+                    help="nonlinearity for the --head_layers MLP")
+    ap.add_argument("--ffn_keep", type=float, default=1.0,
+                    help="structured width pruning: keep this fraction of FFN "
+                         "intermediate neurons per layer (1.0 = off)")
+    ap.add_argument("--heads_keep", type=float, default=1.0,
+                    help="structured width pruning: keep this fraction of attention "
+                         "heads per layer (1.0 = off)")
     args = ap.parse_args()
 
     from transformers import (
@@ -139,9 +426,19 @@ def main():
     texts = build_texts(samples, input_mode=args.input, max_hist=max_hist)
     y_ids = np.array([CLASS_TO_ID[a] for a in y])
     tr, va = split_indices(y, seed=args.seed)
+    if args.full_data:
+        # grow training with 75% of the old val; eval/calibrate on the untouched 25%.
+        # Same seed as split_indices -> an --init_from checkpoint trained on `tr`
+        # has never seen ANY of the surviving eval samples.
+        from sklearn.model_selection import train_test_split
+        va_train, va_eval = train_test_split(
+            va, test_size=0.25, stratify=y_ids[va], random_state=args.seed)
+        tr = np.concatenate([tr, va_train])
+        va = va_eval
     if args.limit:
         tr, va = tr[: args.limit], va[: max(1, args.limit // 4)]
-    logger.info(f"samples={len(texts)}  train={len(tr)}  val={len(va)}  max_hist={max_hist}")
+    logger.info(f"samples={len(texts)}  train={len(tr)}  val={len(va)}  max_hist={max_hist}  "
+                f"full_data={args.full_data}")
 
     # ---- tokenizer + model + single linear head ----
     # trust_remote_code: some backbones (e.g. gte's model_type "new") ship custom
@@ -149,8 +446,10 @@ def main():
     tok = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
+    if args.init_from:
+        logger.info(f"continuing from fine-tuned checkpoint: {args.init_from}")
     model = AutoModelForSequenceClassification.from_pretrained(
-        args.model, num_labels=len(ALL_CLASSES),
+        args.init_from or args.model, num_labels=len(ALL_CLASSES),
         torch_dtype=torch.float32,   # fp32 for stable classifier training
         trust_remote_code=True,
         # real action names so config.id2label maps ids -> actions (not LABEL_0...);
@@ -162,20 +461,52 @@ def main():
         ignore_mismatched_sizes=True,
     )
     model.config.pad_token_id = tok.pad_token_id
+    if args.reinit_layers:
+        reinit_top_layers(model, args.reinit_layers)
+    if args.keep_layers:
+        prune_layers(model, args.keep_layers)
+    if args.ffn_keep < 1.0:
+        prune_ffn(model, args.ffn_keep)
+    if args.heads_keep < 1.0:
+        prune_attn_heads(model, args.heads_keep)   # after prune_layers: fresh indices
+    if args.head_layers:
+        replace_head(model, args.head_layers, args.head_act)
 
     # ---- full fine-tuning: ALL backbone weights + head are trainable ----
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_total = sum(p.numel() for p in model.parameters())
     logger.info(f"trainable params: {n_trainable:,} / {n_total:,} (100% — full fine-tune)")
 
-    train_ds = build_dataset(tok, [texts[i] for i in tr], y_ids[tr], args.max_len)
+    teacher = None
+    if args.distill_from:
+        teacher = np.load(args.distill_from)["logits"].astype(np.float32)
+        assert len(teacher) == len(texts), \
+            f"teacher logits rows ({len(teacher)}) != samples ({len(texts)})"
+        logger.info(f"distilling from {args.distill_from} "
+                    f"(alpha={args.distill_alpha}, T={args.distill_T})")
+    if args.hist_dropout:
+        assert not args.distill_from, "--hist_dropout + --distill_from not supported together"
+        logger.info(f"history dropout p={args.hist_dropout} (fresh draw per epoch)")
+        train_ds = build_dynamic_dataset(tok, [samples[i] for i in tr], y_ids[tr],
+                                         args.max_len, max_hist, args.hist_dropout, args.seed)
+    else:
+        train_ds = build_dataset(tok, [texts[i] for i in tr], y_ids[tr], args.max_len,
+                                 teacher=teacher[tr] if teacher is not None else None)
     val_ds = build_dataset(tok, [texts[i] for i in va], y_ids[va], args.max_len)
     collator = DataCollatorWithPadding(tok)
+    if teacher is not None:
+        collator = DistillCollator(collator)
 
     # plain cross-entropy (Trainer's default). No class weighting — the 73.07 model
     # handles imbalance via post-hoc logit-bias calibration instead.
-    safe = args.model.replace("/", "__")
+    safe = args.model.replace("/", "__") + (f"_{args.tag}" if args.tag else "")
     run_dir = os.path.join(args.out_dir, f"ft_{safe}")
+    # bf16 where the GPU supports it (Ampere+: 3090/4090). fp16 NaN-diverged
+    # Qwen3-0.6B on pat (loss -> 0.0, grad_norm NaN mid-epoch-1) while the same
+    # recipe was fine for granite — LLM-style backbones overflow fp16's range.
+    # 2080 Ti (Turing) has no bf16 -> falls back to fp16 as before.
+    use_bf16 = device == "cuda" and torch.cuda.is_bf16_supported()
+    logger.info(f"precision: {'bf16' if use_bf16 else 'fp16' if device == 'cuda' else 'fp32'}")
     targs = TrainingArguments(
         output_dir=run_dir, num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
@@ -188,11 +519,22 @@ def main():
         gradient_checkpointing=True,                   # trade compute for VRAM (full-FT is heavy)
         eval_strategy="epoch", save_strategy="epoch",
         load_best_model_at_end=True, metric_for_best_model="macro_f1", greater_is_better=True,
-        save_total_limit=1, fp16=(device == "cuda"), report_to="none", seed=args.seed,
+        save_total_limit=args.keep_checkpoints,
+        save_only_model=(args.keep_checkpoints > 1),   # SWA needs weights only; saves ~2x disk
+        bf16=use_bf16, fp16=(device == "cuda" and not use_bf16),
+        report_to="none", seed=args.seed,
     )
-    trainer = Trainer(
+    optimizers = (None, None)
+    if args.llrd:
+        optimizers = (build_llrd_optimizer(model, args.lr, args.llrd,
+                                           args.optim, targs.weight_decay), None)
+    trainer_cls = Trainer
+    if teacher is not None:
+        trainer_cls = make_distill_trainer(Trainer, args.distill_alpha, args.distill_T)
+    trainer = trainer_cls(
         model=model, args=targs, train_dataset=train_ds, eval_dataset=val_ds,
         data_collator=collator, compute_metrics=compute_metrics,
+        optimizers=optimizers,
     )
 
     trainer.train()
@@ -215,9 +557,12 @@ def main():
 
     # ---- record ----
     os.makedirs(args.out_dir, exist_ok=True)
-    row = {"model": args.model, "method": "full_ft", "head": "linear",
+    row = {"model": args.model, "method": "full_ft",
+           "head": f"mlp{args.head_layers}_{args.head_act}" if args.head_layers else "linear",
            "epochs": args.epochs, "lr": args.lr, "val_macro_f1": round(float(val_f1), 4),
-           "calibrated_macro_f1": round(float(tuned_f1), 4)}
+           "calibrated_macro_f1": round(float(tuned_f1), 4),
+           "tag": args.tag, "max_len": args.max_len,
+           "init_from": args.init_from, "full_data": args.full_data}
     out_csv = os.path.join(args.out_dir, args.results_name)
     write_header = not os.path.exists(out_csv)
     with open(out_csv, "a", newline="") as f:

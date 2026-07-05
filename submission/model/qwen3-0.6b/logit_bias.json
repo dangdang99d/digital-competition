@@ -1,0 +1,20 @@
+{
+  "base_macro_f1": 0.7679995615732208,
+  "tuned_macro_f1": 0.7752335818838186,
+  "bias": {
+    "read_file": -0.10000000149011612,
+    "grep_search": -0.75,
+    "list_directory": 0.44999998807907104,
+    "glob_pattern": 0.0,
+    "edit_file": -1.25,
+    "write_file": 0.0,
+    "apply_patch": -0.6499999761581421,
+    "run_bash": -0.550000011920929,
+    "run_tests": 0.44999998807907104,
+    "lint_or_typecheck": 0.0,
+    "ask_user": -0.05000000074505806,
+    "plan_task": 0.0,
+    "web_search": 0.0,
+    "respond_only": -2.0
+  }
+}

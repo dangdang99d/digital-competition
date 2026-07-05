@@ -22,7 +22,7 @@ nvidia-smi -L || true
 # needed inside the batch job. Adjust the miniconda path / env name if they differ.
 # If you ever need conda on an interactive shell instead:
 #   source /NAS2/ksjang0515/home/config/bash/.bashrc
-#   source /NAS2/ksjang0515/home/config/bash/.bash_profile
+#   source /NAS2/ksjang0515/home/config/bash/.profile
 #   conda activate dacon
 PY=/NAS2/ksjang0515/home/miniconda3/envs/dacon/bin/python
 

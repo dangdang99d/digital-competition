@@ -31,11 +31,13 @@ def load_samples(data_dir):
     return samples, y
 
 
-def serialize(r, max_hist=None):
+def serialize(r, max_hist=None, hist_dropout=0.0, rng=None):
     """Flatten one sample to a single text string: session_meta + history + current_prompt.
 
     max_hist=None -> use the FULL history (no cap); an int caps to the last N events.
     (Token-level truncation is still handled downstream by the tokenizer's max_len.)
+    hist_dropout: training-time augmentation — drop each history event independently
+    with this probability (needs rng, a np.random.Generator). Never use for eval.
     """
     sm = r["session_meta"]
     ws = sm["workspace"]
@@ -45,6 +47,8 @@ def serialize(r, max_hist=None):
         f"dirty={ws['git_dirty']} open={','.join(ws['open_files']) or '-'}]"
     ]
     hist = r["history"] if max_hist is None else r["history"][-max_hist:]
+    if hist_dropout and rng is not None:
+        hist = [t for t in hist if rng.random() >= hist_dropout]
     for t in hist:
         if t.get("role") == "user":
             parts.append(f"USER: {t['content']}")
