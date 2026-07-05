@@ -60,6 +60,8 @@ SERIALIZE_VARIANTS = {
     "nometa":    {"drop_meta": True},       # no [tier=... ci=...] header line
     "leanact":   {"lean_actions": True},    # ACTION name -> ok|fail (no args/summary)
     "dupprompt": {"dup_prompt": True},      # prompt text doubled inside the PROMPT line
+    # all text axes at once (pair with --special_tokens for the full combo run)
+    "combo":     {"drop_meta": True, "lean_actions": True, "dup_prompt": True},
 }
 
 
