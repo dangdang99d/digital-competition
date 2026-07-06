@@ -24,8 +24,9 @@ import torch
 from loguru import logger
 from sklearn.metrics import f1_score
 
-from src.data import (ALL_CLASSES, CLASS_TO_ID, GROUP_ID, SERIALIZE_VARIANTS,
-                      build_texts, load_samples, serialize, split_indices)
+from src.data import (ACTION_GROUPS, ALL_CLASSES, CLASS_TO_ID, GROUP_ID,
+                      SERIALIZE_VARIANTS, build_texts, load_samples, serialize,
+                      split_indices)
 
 
 def build_dataset(tok, texts, labels, max_len, desc="tokenizing", teacher=None,
@@ -589,9 +590,13 @@ def main():
     ap.add_argument("--boundary_margin", type=float, default=2.0,
                     help="logit-margin threshold for --hard_boundary mining")
     ap.add_argument("--pair", default="",
-                    help="binary specialist mode: 'classA,classB' — train only on "
-                         "samples of these two classes with a 2-class head (init the "
-                         "encoder from --init_from). For margin-gated deferral")
+                    help="subset specialist mode: comma-list of 2+ classes — train "
+                         "only on their samples with an N-class head (init the "
+                         "encoder from --init_from). 2 classes = deferral pair; a "
+                         "full group = hierarchical per-group specialist")
+    ap.add_argument("--group_task", action="store_true",
+                    help="4-class router task: labels collapsed to confusion groups "
+                         "(explore/edit/execute/noncode); all samples kept")
     args = ap.parse_args()
 
     from transformers import (
@@ -619,10 +624,15 @@ def main():
         tr = np.concatenate([tr, va_train])
         va = va_eval
     classes = ALL_CLASSES
+    if args.group_task:
+        assert not args.pair, "--group_task and --pair are mutually exclusive"
+        classes = list(ACTION_GROUPS)
+        y_ids = np.array([GROUP_ID[CLASS_TO_ID[a]] for a in y])
+        logger.info(f"group-router task: 4 classes {classes}")
     if args.pair:
         classes = args.pair.split(",")
-        assert len(classes) == 2 and all(c in CLASS_TO_ID for c in classes), \
-            f"--pair must name two of {ALL_CLASSES}"
+        assert len(classes) >= 2 and all(c in CLASS_TO_ID for c in classes), \
+            f"--pair must name 2+ of {ALL_CLASSES}"
         # filter AFTER the split, keeping absolute indices: the specialist's train
         # set stays inside the 14-class model's train split, so composing the two
         # on the main val split later is uncontaminated
