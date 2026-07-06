@@ -73,6 +73,25 @@ def _result_ok(rs):
     return True
 
 
+def _budget_bucket(tokens):
+    """names-style budget bucketing (teammate's thresholds, kept identical)."""
+    if tokens < 2_000:
+        return "very_low"
+    if tokens < 10_000:
+        return "low"
+    if tokens < 50_000:
+        return "medium"
+    return "high"
+
+
+def _elapsed_bucket(seconds):
+    if seconds < 120:
+        return "early"
+    if seconds < 900:
+        return "mid"
+    return "late"
+
+
 # Serialization ablation presets: each variant flips exactly ONE axis vs v1.
 SERIALIZE_VARIANTS = {
     "v1":        {},                        # the hist0-baseline format
@@ -88,12 +107,17 @@ SERIALIZE_VARIANTS = {
     # all axes at once (pair with --special_tokens for the full combo run)
     "combo":     {"drop_meta": True, "lean_actions": True, "dup_prompt": True,
                   "bare_actions": True},
+    # names-style metadata enrichment (teammate's headline changes, structure
+    # unchanged): basename-only open files + count, bucketed budget/elapsed,
+    # dominant code language, loc. Hypothesis under test: full directory paths
+    # in open= drag ambiguous explore cases toward read_file.
+    "richmeta":  {"rich_meta": True},
 }
 
 
 def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
               drop_meta=False, lean_actions=False, dup_prompt=False,
-              bare_actions=False):
+              bare_actions=False, rich_meta=False):
     """Flatten one sample to a single text string: session_meta + history + current_prompt.
 
     max_hist=None -> use the FULL history (no cap); an int caps to the last N events.
@@ -106,7 +130,19 @@ def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
     sm = r["session_meta"]
     ws = sm["workspace"]
     parts = []
-    if not drop_meta:
+    if rich_meta:
+        mix = ws.get("language_mix") or {}
+        codelang = max(mix.items(), key=lambda kv: kv[1])[0] if mix else "-"
+        names = [f.rsplit("/", 1)[-1] for f in ws["open_files"][:6]]
+        parts.append(
+            f"[tier={sm['user_tier']} lang={sm['language_pref']} turn={sm['turn_index']} "
+            f"budget={_budget_bucket(sm['budget_tokens_remaining'])} "
+            f"elapsed={_elapsed_bucket(sm['elapsed_session_sec'])} "
+            f"codelang={codelang} loc={ws.get('loc', '-')} ci={ws['last_ci_status']} "
+            f"dirty={ws['git_dirty']} open={len(ws['open_files'])} "
+            f"files={','.join(names) or '-'}]"
+        )
+    elif not drop_meta:
         parts.append(
             f"[tier={sm['user_tier']} lang={sm['language_pref']} turn={sm['turn_index']} "
             f"budget={sm['budget_tokens_remaining']} ci={ws['last_ci_status']} "
