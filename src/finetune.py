@@ -597,6 +597,10 @@ def main():
     ap.add_argument("--group_task", action="store_true",
                     help="4-class router task: labels collapsed to confusion groups "
                          "(explore/edit/execute/noncode); all samples kept")
+    ap.add_argument("--truncation_side", default="right", choices=["right", "left"],
+                    help="left = drop the OLDEST tokens when over max_len, keeping "
+                         "recent history + the PROMPT line (which sits at the end). "
+                         "For 512-cap models whose group signal is the prompt")
     ap.add_argument("--lora", type=int, default=0,
                     help="train a LoRA adapter of this rank instead of full FT "
                          "(alpha=2r, dropout .05, q/v projections + head). Pair with "
@@ -656,6 +660,7 @@ def main():
     # trust_remote_code: some backbones (e.g. gte's model_type "new") ship custom
     # modeling code and won't load without it.
     tok = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
+    tok.truncation_side = args.truncation_side
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     if args.init_from:
