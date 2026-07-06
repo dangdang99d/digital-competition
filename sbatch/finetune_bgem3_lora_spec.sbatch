@@ -11,10 +11,14 @@
 
 # TARGET MODEL: BAAI/bge-m3 (prune12 12L checkpoint, frozen base)
 
-# Hierarchical specialists: 4 per-group LoRA adapters (r=16, q/v + head) on the
-# SHARED prune12 backbone (0.7619 cal, 2:29 LB) — self-routing via its own 14-class head collapsed to groups; e5 router dropped (512-token cap violates full-length requirement). Router = multilingual-e5-small group classifier
-# (trained locally; bar = hist0's 97.86% group acc). Storage: 1 backbone
-# (654MB pkg) + 4 adapters (~11MB each) + router (~86MB pruned) fits the 1GB zip.
+# Triage specialists: 4 per-group LoRA adapters (r=16, q/v + head) on the SHARED
+# prune12 backbone (0.7619 cal, 2:29/388MB LB-verified). Routing = SELF-ROUTING:
+# the backbone's own 14-class head collapsed to a group picks the adapter
+# (full-length input, 0 extra storage, routing acc == flat model's by
+# construction). The separate e5-small router was dropped: 512-token cap
+# violates the full-length requirement and it missed the 97.86% bar (96.2%).
+# Storage: 388MB backbone pkg + 4 adapters (~11MB each) << 1GB zip.
+# Inference: 2 prune12 passes (base head route + adapted pass) ~= 5:00.
 #   task 0 explore   task 1 edit   task 2 execute   task 3 noncode
 # Specialists see only their group's samples (split-safe --pair filtering);
 # eval = within-group macro-F1 on the group's val slice + per-run logit_bias.
@@ -35,7 +39,7 @@ CLS=("read_file,grep_search,list_directory,glob_pattern"
 G="${GROUPS[$SLURM_ARRAY_TASK_ID]}"
 
 if [[ ! -f "${BASE}/model.safetensors" ]]; then
-  echo "ERROR: hist0 checkpoint missing on pat: ${BASE}"
+  echo "ERROR: prune12 checkpoint missing on pat: ${BASE}"
   exit 1
 fi
 
