@@ -7,6 +7,9 @@
 #SBATCH --time=1-00:00:00
 #SBATCH --output=sbatch/logs/%x-%j.out
 
+# NOTE: adafactor, not adamw — full-FT AdamW states (4.5GB) OOM the 2080 Ti
+# (10.75GB); adafactor's factored moments fit. Minor optimizer asterisk on the
+# ceiling number vs the AdamW-trained comparison rungs.
 # CEILING probe for the router-adapter (triage) approach: full fine-tune of
 # STOCK BAAI/bge-m3 (24L, fresh from HF — no prune, no frozen base, no LoRA)
 # on ONLY the explore-group samples (~23k train / 5.7k val), standard recipe.
@@ -36,6 +39,7 @@ python -u -m src.finetune \
   --pair "read_file,grep_search,list_directory,glob_pattern" \
   --tag ceil_explore \
   --max_len 1024 --epochs 3 --lr 2e-5 \
+  --optim adafactor \
   --batch_size 4 --grad_accum 4 \
   --out_dir ./output/pat \
   --results_name "ft_results_ceil_explore.csv"
