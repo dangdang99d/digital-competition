@@ -56,6 +56,9 @@ def main():
     ap.add_argument("--tag", default="hist0")
     ap.add_argument("--out_dir", default="./output")
     ap.add_argument("--skip_extract", action="store_true")
+    ap.add_argument("--render", default="v1", choices=["v1", "names"],
+                    help="input serialization: v1 (our formats) or names "
+                         "(teammate's granite format — pair with --max_len 512)")
     args = ap.parse_args()
 
     samples, y = load_samples(args.data_dir)
@@ -66,7 +69,11 @@ def main():
         embs = np.load(emb_path)
         logger.info(f"reusing {emb_path} {embs.shape}")
     else:
-        texts = build_texts(samples, input_mode="context", max_hist=None, variant="v1")
+        if args.render == "names":
+            from analysis.names_render import render_sample
+            texts = [render_sample(s) for s in samples]
+        else:
+            texts = build_texts(samples, input_mode="context", max_hist=None, variant="v1")
         embs = extract(args.ckpt, texts, args.max_len, args.batch, emb_path)
 
     x = embs.astype(np.float32)

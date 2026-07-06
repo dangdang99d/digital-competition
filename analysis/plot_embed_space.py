@@ -48,6 +48,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--proj", default="output/proj_hist0.npz")
     ap.add_argument("--out", default="figures/tsne_hist0.png")
+    ap.add_argument("--title", default="hist0 (bge-m3) [CLS] embeddings — 70k train samples, t-SNE")
     args = ap.parse_args()
 
     d = np.load(args.proj)
@@ -76,8 +77,7 @@ def main():
     handles.append(Line2D([], [], marker="o", ls="", color=GREY, markersize=10,
                           label="other groups (focus panels)"))
     ax.legend(handles=handles, loc="center", fontsize=10, frameon=False)
-    ax.set_title("hist0 (bge-m3) [CLS] embeddings — 70k train samples, t-SNE",
-                 fontsize=12, color=INK)
+    ax.set_title(args.title, fontsize=12, color=INK)
 
     # --- focus panels: one per group ---
     positions = [(0, 2), (1, 0), (1, 1), (1, 2)]
