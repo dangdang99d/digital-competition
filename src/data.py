@@ -92,6 +92,17 @@ def _elapsed_bucket(seconds):
     return "late"
 
 
+def _strip_dirs(v):
+    """Directory simplification for path-like arg values: keep the last path
+    component ('src/a/b.py' -> 'b.py'), preserving a trailing slash marker
+    ('configs/' -> 'configs/', './' -> './'). Glob patterns lose their dir part
+    too ('**/*.py' -> '*.py') — consistent with the paths-are-harmful hypothesis."""
+    if "/" not in v:
+        return v
+    tail = "/" if v.endswith("/") else ""
+    return v.rstrip("/").rsplit("/", 1)[-1] + tail
+
+
 # Serialization ablation presets: each variant flips exactly ONE axis vs v1.
 SERIALIZE_VARIANTS = {
     "v1":        {},                        # the hist0-baseline format
@@ -112,12 +123,15 @@ SERIALIZE_VARIANTS = {
     # dominant code language, loc. Hypothesis under test: full directory paths
     # in open= drag ambiguous explore cases toward read_file.
     "richmeta":  {"rich_meta": True},
+    # richmeta + directory simplification inside history action args too
+    # (path/scope/pattern values). One axis vs richmeta: v1 -> richmeta -> richargs.
+    "richargs":  {"rich_meta": True, "arg_basenames": True},
 }
 
 
 def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
               drop_meta=False, lean_actions=False, dup_prompt=False,
-              bare_actions=False, rich_meta=False):
+              bare_actions=False, rich_meta=False, arg_basenames=False):
     """Flatten one sample to a single text string: session_meta + history + current_prompt.
 
     max_hist=None -> use the FULL history (no cap); an int caps to the last N events.
@@ -163,8 +177,12 @@ def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
             parts.append(line if bare_actions else
                          "ACTION " + line.replace(" ", " -> ", 1))
         else:
+            args = t.get("args", {}) or {}
+            if arg_basenames:
+                args = {k: _strip_dirs(v) if isinstance(v, str) else v
+                        for k, v in args.items()}
             parts.append(
-                f"ACTION {t['name']}({t.get('args', {})}) -> {t.get('result_summary', '')}"
+                f"ACTION {t['name']}({args}) -> {t.get('result_summary', '')}"
             )
     if dup_prompt:
         parts.append(f"PROMPT: {r['current_prompt']} {r['current_prompt']}")
