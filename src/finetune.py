@@ -597,6 +597,11 @@ def main():
     ap.add_argument("--group_task", action="store_true",
                     help="4-class router task: labels collapsed to confusion groups "
                          "(explore/edit/execute/noncode); all samples kept")
+    ap.add_argument("--lora", type=int, default=0,
+                    help="train a LoRA adapter of this rank instead of full FT "
+                         "(alpha=2r, dropout .05, q/v projections + head). Pair with "
+                         "--init_from: the base stays frozen, checkpoints hold only "
+                         "adapter+head — built for shared-backbone specialist packs")
     args = ap.parse_args()
 
     from transformers import (
@@ -681,10 +686,26 @@ def main():
     if args.head_layers:
         replace_head(model, args.head_layers, args.head_act)
 
-    # ---- full fine-tuning: ALL backbone weights + head are trainable ----
+    if args.lora:
+        from peft import LoraConfig, TaskType, get_peft_model
+        head_name = "score" if hasattr(model, "score") else "classifier"
+        # module names differ per architecture family
+        names = [n for n, _ in model.named_modules()]
+        targets = (["q_proj", "v_proj"] if any(n.endswith("q_proj") for n in names)
+                   else ["query", "value"])
+        cfg = LoraConfig(task_type=TaskType.SEQ_CLS, r=args.lora,
+                         lora_alpha=2 * args.lora, lora_dropout=0.05,
+                         target_modules=targets, modules_to_save=[head_name])
+        model = get_peft_model(model, cfg)
+        # gradient checkpointing needs grads to flow from the (frozen) embeddings
+        model.enable_input_require_grads()
+        logger.info(f"LoRA r={args.lora} on {targets} + {head_name} (base frozen)")
+
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_total = sum(p.numel() for p in model.parameters())
-    logger.info(f"trainable params: {n_trainable:,} / {n_total:,} (100% — full fine-tune)")
+    logger.info(f"trainable params: {n_trainable:,} / {n_total:,} "
+                f"({100 * n_trainable / n_total:.1f}%"
+                f"{' — LoRA' if args.lora else ' — full fine-tune'})")
 
     aux_on = bool(args.rdrop or args.supcon or args.hard_boundary)
     if aux_on:
@@ -800,7 +821,7 @@ def main():
 
     # ---- record ----
     os.makedirs(args.out_dir, exist_ok=True)
-    row = {"model": args.model, "method": "full_ft",
+    row = {"model": args.model, "method": f"lora{args.lora}" if args.lora else "full_ft",
            "head": f"mlp{args.head_layers}_{args.head_act}" if args.head_layers else "linear",
            "epochs": args.epochs, "lr": args.lr, "val_macro_f1": round(float(val_f1), 4),
            "calibrated_macro_f1": round(float(tuned_f1), 4),
