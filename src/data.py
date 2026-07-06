@@ -21,6 +21,17 @@ ALL_CLASSES = [
 ]
 CLASS_TO_ID = {c: i for i, c in enumerate(ALL_CLASSES)}
 
+# confusion groups (92% of val errors stay inside one of these; error analysis)
+ACTION_GROUPS = {
+    "explore": ["read_file", "grep_search", "list_directory", "glob_pattern"],
+    "edit": ["edit_file", "write_file", "apply_patch"],
+    "execute": ["run_bash", "run_tests", "lint_or_typecheck"],
+    "noncode": ["ask_user", "plan_task", "web_search", "respond_only"],
+}
+GROUP_OF = {a: g for g, acts in ACTION_GROUPS.items() for a in acts}
+# group index per class id, aligned with ALL_CLASSES order
+GROUP_ID = [list(ACTION_GROUPS).index(GROUP_OF[c]) for c in ALL_CLASSES]
+
 
 def load_samples(data_dir):
     """Return (samples, y) where samples are the raw JSON dicts and y is a list of action strings."""

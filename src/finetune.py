@@ -24,17 +24,19 @@ import torch
 from loguru import logger
 from sklearn.metrics import f1_score
 
-from src.data import (ALL_CLASSES, CLASS_TO_ID, SERIALIZE_VARIANTS, build_texts,
-                      load_samples, serialize, split_indices)
+from src.data import (ALL_CLASSES, CLASS_TO_ID, GROUP_ID, SERIALIZE_VARIANTS,
+                      build_texts, load_samples, serialize, split_indices)
 
 
-def build_dataset(tok, texts, labels, max_len, desc="tokenizing", teacher=None):
+def build_dataset(tok, texts, labels, max_len, desc="tokenizing", teacher=None,
+                  weights=None):
     """Tokenize once; return a torch Dataset yielding input_ids/attention_mask/labels.
 
     Tokenizes in chunks with a tqdm bar (works in a terminal and prints periodic
     updates to an sbatch log file).
     teacher: optional (N, num_classes) float array of teacher logits (distillation);
     added to each item as "teacher_logits".
+    weights: optional (N,) float array of per-sample loss weights ("weight" key).
     """
     from tqdm.auto import tqdm
 
@@ -58,6 +60,8 @@ def build_dataset(tok, texts, labels, max_len, desc="tokenizing", teacher=None):
             }
             if teacher is not None:
                 item["teacher_logits"] = teacher[i]
+            if weights is not None:
+                item["weight"] = float(weights[i])
             return item
 
     return DS()
@@ -88,17 +92,19 @@ def build_dynamic_dataset(tok, samples_sub, labels, max_len, max_hist, hist_drop
     return DS()
 
 
-def compute_metrics(eval_pred):
-    logits, labels = eval_pred
-    preds = np.argmax(logits, axis=-1)
-    mf1 = f1_score(labels, preds, labels=list(range(len(ALL_CLASSES))),
-                   average="macro", zero_division=0)
-    return {"macro_f1": mf1}
+def make_compute_metrics(n_classes):
+    def compute_metrics(eval_pred):
+        logits, labels = eval_pred
+        preds = np.argmax(logits, axis=-1)
+        mf1 = f1_score(labels, preds, labels=list(range(n_classes)),
+                       average="macro", zero_division=0)
+        return {"macro_f1": mf1}
+    return compute_metrics
 
 
 def _macro_f1(logits, labels, bias):
     preds = np.argmax(logits + bias, axis=1)
-    return f1_score(labels, preds, labels=list(range(len(ALL_CLASSES))),
+    return f1_score(labels, preds, labels=list(range(logits.shape[1])),
                     average="macro", zero_division=0)
 
 
@@ -113,7 +119,7 @@ def calibrate_logit_bias(logits, labels, rounds=50, grid=None):
     """
     if grid is None:
         grid = np.round(np.arange(-2.0, 2.001, 0.02), 3)
-    n = len(ALL_CLASSES)
+    n = logits.shape[1]
     bias = np.zeros(n, dtype=np.float32)
     base = _macro_f1(logits, labels, bias)
     best = base
@@ -202,18 +208,21 @@ def prune_layers(model, keep):
     logger.info(f"pruned encoder depth {depth} -> {len(idx)} (kept layers {idx})")
 
 
-class DistillCollator:
-    """Wrap DataCollatorWithPadding: teacher_logits can't go through tokenizer.pad,
-    so pop them, pad the rest, and re-attach as a stacked float tensor."""
+class ExtrasCollator:
+    """Wrap DataCollatorWithPadding: non-text keys (teacher_logits, weight) can't go
+    through tokenizer.pad, so pop them, pad the rest, and re-attach as tensors."""
 
     def __init__(self, base):
         self.base = base
 
     def __call__(self, features):
         teacher = [f.pop("teacher_logits", None) for f in features]
+        weight = [f.pop("weight", None) for f in features]
         batch = self.base(features)
         if teacher[0] is not None:
             batch["teacher_logits"] = torch.tensor(np.stack(teacher), dtype=torch.float32)
+        if weight[0] is not None:
+            batch["weight"] = torch.tensor(weight, dtype=torch.float32)
         return batch
 
 
@@ -347,6 +356,115 @@ def make_distill_trainer(trainer_cls, alpha, temperature):
     return _DistillTrainer
 
 
+def make_aux_trainer(base_cls, rdrop=0.0, supcon=None):
+    """Trainer with optional boundary-sharpening losses (all train-only, eval is
+    plain CE):
+
+      per-sample weights  — "weight" batch key (from --hard_boundary mining):
+                            loss = sum(w_i * CE_i) / sum(w_i)
+      rdrop > 0           — second forward with fresh dropout masks;
+                            loss = mean CE of both + rdrop * symmetric KL
+      supcon dict         — SupCon aux on the pooled embedding via model.supcon_proj
+                            (lam, tau, group_w, queue): cross-batch memory queue
+                            supplies positives, so no batch-composition surgery;
+                            group_w > 1 upweights SAME-GROUP negatives (read vs grep)
+                            in the denominator — the boundaries we actually lose on.
+    """
+    import torch.nn.functional as F
+
+    class _AuxTrainer(base_cls):
+        def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+            weight = inputs.pop("weight", None)
+            # hidden states only during training — in eval they'd leak into the
+            # Trainer's prediction tuple and break compute_metrics
+            need_h = supcon is not None and model.training
+            outputs = model(**inputs, output_hidden_states=need_h)
+            loss = outputs.loss
+            if not model.training:               # eval path: plain CE
+                return (loss, outputs) if return_outputs else loss
+            labels = inputs["labels"]
+            if weight is not None:
+                ce = F.cross_entropy(outputs.logits.float(), labels, reduction="none")
+                loss = (ce * weight).sum() / weight.sum()
+            if rdrop:
+                out2 = model(**inputs)           # fresh dropout masks
+                lp1 = F.log_softmax(outputs.logits.float(), dim=-1)
+                lp2 = F.log_softmax(out2.logits.float(), dim=-1)
+                kl = 0.5 * (F.kl_div(lp1, lp2, log_target=True, reduction="batchmean")
+                            + F.kl_div(lp2, lp1, log_target=True, reduction="batchmean"))
+                loss = 0.5 * (loss + out2.loss) + rdrop * kl
+            if supcon is not None:
+                loss = loss + supcon["lam"] * self._supcon_loss(model, outputs, inputs)
+            return (loss, outputs) if return_outputs else loss
+
+        def _supcon_loss(self, model, outputs, inputs):
+            h = outputs.hidden_states[-1]
+            if hasattr(model, "score"):          # Qwen-style: last non-pad token
+                last = inputs["attention_mask"].sum(1) - 1
+                pooled = h[torch.arange(h.shape[0], device=h.device), last]
+            else:                                # XLM-R-style: [CLS]
+                pooled = h[:, 0]
+            with torch.autocast(pooled.device.type, enabled=False):  # fp32 for stability
+                z = F.normalize(model.supcon_proj(pooled.float()), dim=-1)
+            y = inputs["labels"]
+            if not hasattr(self, "_xbm_z"):      # lazy cross-batch memory init
+                self._xbm_z = z.new_zeros((0, z.shape[1]))
+                self._xbm_y = y.new_zeros((0,))
+                self._gid = torch.tensor(GROUP_ID, device=y.device)
+            bank_z = torch.cat([z.detach(), self._xbm_z])
+            bank_y = torch.cat([y, self._xbm_y])
+            sim = z @ bank_z.T / supcon["tau"]                       # (B, B+Q)
+            b = z.shape[0]
+            self_mask = torch.zeros_like(sim, dtype=torch.bool)
+            self_mask[:, :b] = torch.eye(b, dtype=torch.bool, device=sim.device)
+            pos = (bank_y[None, :] == y[:, None]) & ~self_mask
+            w = torch.ones_like(sim)
+            same_group = self._gid[bank_y][None, :] == self._gid[y][:, None]
+            w[same_group & ~pos] = supcon["group_w"]                 # hard negatives
+            w[self_mask] = 0.0
+            smax = sim.max(1, keepdim=True).values
+            denom = (w * torch.exp(sim - smax)).sum(1, keepdim=True)
+            log_prob = sim - smax - torch.log(denom + 1e-12)
+            n_pos = pos.sum(1)
+            per_anchor = -(log_prob * pos).sum(1) / n_pos.clamp(min=1)
+            loss = per_anchor[n_pos > 0].mean() if (n_pos > 0).any() else sim.sum() * 0.0
+            # FIFO queue update (detached)
+            self._xbm_z = torch.cat([z.detach(), self._xbm_z])[: supcon["queue"]]
+            self._xbm_y = torch.cat([y, self._xbm_y])[: supcon["queue"]]
+            return loss
+
+    return _AuxTrainer
+
+
+def mine_boundary_weights(model, tok, texts_tr, max_len, weight, margin, device):
+    """One inference pass over the train split with the --init_from checkpoint:
+    samples whose top-2 logits are BOTH in the same confusion group and closer
+    than `margin` get loss weight `weight` (they sit on the boundary we lose on);
+    everything else keeps 1.0."""
+    gid = np.array(GROUP_ID)
+    weights = np.ones(len(texts_tr), dtype=np.float32)
+    order = sorted(range(len(texts_tr)), key=lambda i: -len(texts_tr[i]))  # pad less
+    model.to(device).eval()
+    use_bf16 = device == "cuda" and torch.cuda.is_bf16_supported()
+    with torch.no_grad():
+        for s in range(0, len(order), 64):
+            idx = order[s:s + 64]
+            enc = tok([texts_tr[i] for i in idx], truncation=True, max_length=max_len,
+                      padding=True, return_tensors="pt").to(device)
+            with torch.autocast(device, dtype=torch.bfloat16, enabled=use_bf16):
+                lg = model(**enc).logits.float().cpu().numpy()
+            top2 = np.argsort(lg, axis=1)[:, -2:]                    # [second, first]
+            marg = np.take_along_axis(lg, top2, 1)
+            flag = (gid[top2[:, 0]] == gid[top2[:, 1]]) & ((marg[:, 1] - marg[:, 0]) < margin)
+            for j, i in enumerate(idx):
+                if flag[j]:
+                    weights[i] = weight
+    frac = float((weights > 1).mean())
+    logger.info(f"boundary mining: {frac:.1%} of train samples flagged "
+                f"(weight {weight}, margin {margin})")
+    return weights
+
+
 def add_action_tokens(tok, model):
     """Add the 14 action names + serialization markers as ATOMIC tokens.
 
@@ -450,6 +568,30 @@ def main():
     ap.add_argument("--heads_keep", type=float, default=1.0,
                     help="structured width pruning: keep this fraction of attention "
                          "heads per layer (1.0 = off)")
+    ap.add_argument("--rdrop", type=float, default=0.0,
+                    help="R-Drop: second forward pass with fresh dropout, symmetric-KL "
+                         "consistency penalty with this weight (0 = off). Noise-"
+                         "compatible boundary sharpening; ~doubles train compute")
+    ap.add_argument("--supcon", type=float, default=0.0,
+                    help="weight of a supervised-contrastive auxiliary loss on the "
+                         "pooled embedding (0 = off). Uses a cross-batch memory queue "
+                         "for positives; projection head is train-only (not shipped)")
+    ap.add_argument("--supcon_tau", type=float, default=0.1, help="SupCon temperature")
+    ap.add_argument("--supcon_group_w", type=float, default=2.0,
+                    help="upweight same-group negatives in the SupCon denominator "
+                         "(read-vs-grep style hard negatives); 1.0 = uniform")
+    ap.add_argument("--supcon_queue", type=int, default=4096,
+                    help="cross-batch memory size (embeddings kept as extra pos/neg)")
+    ap.add_argument("--hard_boundary", type=float, default=0.0,
+                    help="hard-example mining (needs --init_from): upweight train "
+                         "samples whose top-2 checkpoint logits are same-group and "
+                         "closer than --boundary_margin to this loss weight (0 = off)")
+    ap.add_argument("--boundary_margin", type=float, default=2.0,
+                    help="logit-margin threshold for --hard_boundary mining")
+    ap.add_argument("--pair", default="",
+                    help="binary specialist mode: 'classA,classB' — train only on "
+                         "samples of these two classes with a 2-class head (init the "
+                         "encoder from --init_from). For margin-gated deferral")
     args = ap.parse_args()
 
     from transformers import (
@@ -476,6 +618,20 @@ def main():
             va, test_size=0.25, stratify=y_ids[va], random_state=args.seed)
         tr = np.concatenate([tr, va_train])
         va = va_eval
+    classes = ALL_CLASSES
+    if args.pair:
+        classes = args.pair.split(",")
+        assert len(classes) == 2 and all(c in CLASS_TO_ID for c in classes), \
+            f"--pair must name two of {ALL_CLASSES}"
+        # filter AFTER the split, keeping absolute indices: the specialist's train
+        # set stays inside the 14-class model's train split, so composing the two
+        # on the main val split later is uncontaminated
+        pair_ids = {CLASS_TO_ID[c] for c in classes}
+        y_ids = np.array([classes.index(a) if CLASS_TO_ID[a] in pair_ids else -1
+                          for a in y])
+        tr = tr[y_ids[tr] >= 0]
+        va = va[y_ids[va] >= 0]
+        logger.info(f"pair specialist {classes}: filtered to {len(tr)} train / {len(va)} val")
     if args.limit:
         tr, va = tr[: args.limit], va[: max(1, args.limit // 4)]
     logger.info(f"samples={len(texts)}  train={len(tr)}  val={len(va)}  max_hist={max_hist}  "
@@ -490,13 +646,13 @@ def main():
     if args.init_from:
         logger.info(f"continuing from fine-tuned checkpoint: {args.init_from}")
     model = AutoModelForSequenceClassification.from_pretrained(
-        args.init_from or args.model, num_labels=len(ALL_CLASSES),
+        args.init_from or args.model, num_labels=len(classes),
         torch_dtype=torch.float32,   # fp32 for stable classifier training
         trust_remote_code=True,
         # real action names so config.id2label maps ids -> actions (not LABEL_0...);
         # needed for logit_bias.json keys and for inference to emit action strings.
-        id2label={i: c for i, c in enumerate(ALL_CLASSES)},
-        label2id={c: i for i, c in enumerate(ALL_CLASSES)},
+        id2label={i: c for i, c in enumerate(classes)},
+        label2id={c: i for i, c in enumerate(classes)},
         # some backbones ship a pretrained head (e.g. gte has a 1-logit head);
         # discard it and init a fresh 14-class head for our task.
         ignore_mismatched_sizes=True,
@@ -520,6 +676,29 @@ def main():
     n_total = sum(p.numel() for p in model.parameters())
     logger.info(f"trainable params: {n_trainable:,} / {n_total:,} (100% — full fine-tune)")
 
+    aux_on = bool(args.rdrop or args.supcon or args.hard_boundary)
+    if aux_on:
+        assert not args.distill_from, \
+            "--distill_from is not combinable with --rdrop/--supcon/--hard_boundary"
+    assert not (args.rdrop and args.hard_boundary), \
+        "--rdrop + --hard_boundary: the KL term would mix weighted/unweighted CE"
+    if args.supcon:
+        assert not args.pair, "--supcon group weighting assumes the 14-class space"
+        import torch.nn as nn
+        h = model.config.hidden_size
+        # train-only projection head (SupCon standard); saved with checkpoints but
+        # ignored by from_pretrained at inference — nothing ships
+        model.supcon_proj = nn.Sequential(nn.Linear(h, h), nn.ReLU(), nn.Linear(h, 128))
+        logger.info(f"SupCon aux: lam={args.supcon} tau={args.supcon_tau} "
+                    f"group_w={args.supcon_group_w} queue={args.supcon_queue}")
+    weights_tr = None
+    if args.hard_boundary:
+        assert args.init_from, "--hard_boundary mines boundaries with the --init_from checkpoint"
+        assert not args.hist_dropout, "--hard_boundary needs static per-sample weights"
+        weights_tr = mine_boundary_weights(
+            model, tok, [texts[i] for i in tr], args.max_len,
+            args.hard_boundary, args.boundary_margin, device)
+
     teacher = None
     if args.distill_from:
         teacher = np.load(args.distill_from)["logits"].astype(np.float32)
@@ -535,11 +714,12 @@ def main():
                                          variant=args.serialize)
     else:
         train_ds = build_dataset(tok, [texts[i] for i in tr], y_ids[tr], args.max_len,
-                                 teacher=teacher[tr] if teacher is not None else None)
+                                 teacher=teacher[tr] if teacher is not None else None,
+                                 weights=weights_tr)
     val_ds = build_dataset(tok, [texts[i] for i in va], y_ids[va], args.max_len)
     collator = DataCollatorWithPadding(tok)
-    if teacher is not None:
-        collator = DistillCollator(collator)
+    if teacher is not None or weights_tr is not None:
+        collator = ExtrasCollator(collator)
 
     # plain cross-entropy (Trainer's default). No class weighting — the 73.07 model
     # handles imbalance via post-hoc logit-bias calibration instead.
@@ -579,9 +759,14 @@ def main():
     trainer_cls = Trainer
     if teacher is not None:
         trainer_cls = make_distill_trainer(Trainer, args.distill_alpha, args.distill_T)
+    if aux_on:
+        supcon_cfg = ({"lam": args.supcon, "tau": args.supcon_tau,
+                       "group_w": args.supcon_group_w, "queue": args.supcon_queue}
+                      if args.supcon else None)
+        trainer_cls = make_aux_trainer(Trainer, rdrop=args.rdrop, supcon=supcon_cfg)
     trainer = trainer_cls(
         model=model, args=targs, train_dataset=train_ds, eval_dataset=val_ds,
-        data_collator=collator, compute_metrics=compute_metrics,
+        data_collator=collator, compute_metrics=make_compute_metrics(len(classes)),
         optimizers=optimizers,
     )
 
@@ -598,7 +783,7 @@ def main():
     logger.success(f"  calibrated: {base_f1:.4f} -> {tuned_f1:.4f} (+{tuned_f1-base_f1:.4f})")
     # save the bias next to the model checkpoint for inference
     id2label = model.config.id2label
-    bias_map = {id2label[i]: float(bias[i]) for i in range(len(ALL_CLASSES))}
+    bias_map = {id2label[i]: float(bias[i]) for i in range(len(classes))}
     with open(os.path.join(run_dir, "logit_bias.json"), "w") as f:
         json.dump({"base_macro_f1": float(base_f1), "tuned_macro_f1": float(tuned_f1),
                    "bias": bias_map}, f, indent=2)
@@ -611,7 +796,9 @@ def main():
            "calibrated_macro_f1": round(float(tuned_f1), 4),
            "tag": args.tag, "max_len": args.max_len, "serialize": args.serialize,
            "special_tokens": args.special_tokens,
-           "init_from": args.init_from, "full_data": args.full_data}
+           "init_from": args.init_from, "full_data": args.full_data,
+           "rdrop": args.rdrop, "supcon": args.supcon,
+           "hard_boundary": args.hard_boundary, "pair": args.pair}
     out_csv = os.path.join(args.out_dir, args.results_name)
     write_header = not os.path.exists(out_csv)
     with open(out_csv, "a", newline="") as f:
