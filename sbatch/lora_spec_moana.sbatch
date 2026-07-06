@@ -22,12 +22,12 @@ cd /data/ksjang0515/dacon
 mkdir -p sbatch/logs output/pat
 
 BASE=output/pat/ft_BAAI__bge-m3_prune12/checkpoint-10500
-GROUPS=(explore edit execute noncode)
+GRP_NAMES=(explore edit execute noncode)
 CLS=("read_file,grep_search,list_directory,glob_pattern"
      "edit_file,write_file,apply_patch"
      "run_bash,run_tests,lint_or_typecheck"
      "ask_user,plan_task,web_search,respond_only")
-G="${GROUPS[$SLURM_ARRAY_TASK_ID]}"
+G="${GRP_NAMES[$SLURM_ARRAY_TASK_ID]}"
 
 if [[ ! -f "${BASE}/model.safetensors" ]]; then
   echo "ERROR: prune12 checkpoint missing on moana: ${BASE} (rsync it first)"
