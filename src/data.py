@@ -131,7 +131,8 @@ SERIALIZE_VARIANTS = {
 
 def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
               drop_meta=False, lean_actions=False, dup_prompt=False,
-              bare_actions=False, rich_meta=False, arg_basenames=False):
+              bare_actions=False, rich_meta=False, arg_basenames=False,
+              strip_history=False):
     """Flatten one sample to a single text string: session_meta + history + current_prompt.
 
     max_hist=None -> use the FULL history (no cap); an int caps to the last N events.
@@ -162,7 +163,7 @@ def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
             f"budget={sm['budget_tokens_remaining']} ci={ws['last_ci_status']} "
             f"dirty={ws['git_dirty']} open={','.join(ws['open_files']) or '-'}]"
         )
-    hist = r["history"] if max_hist is None else r["history"][-max_hist:]
+    hist = [] if strip_history else (r["history"] if max_hist is None else r["history"][-max_hist:])
     if hist_dropout and rng is not None:
         hist = [t for t in hist if rng.random() >= hist_dropout]
     for t in hist:
@@ -191,14 +192,17 @@ def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
     return "\n".join(parts)
 
 
-def build_texts(samples, input_mode="context", max_hist=None, variant="v1"):
+def build_texts(samples, input_mode="context", max_hist=None, variant="v1",
+                strip_history=False):
     """input_mode: 'context' = full serialized; 'prompt' = current_prompt only (baseline-style).
-    max_hist=None -> full history. variant: a SERIALIZE_VARIANTS key."""
+    max_hist=None -> full history. variant: a SERIALIZE_VARIANTS key.
+    strip_history: drop all history events (synthesize zero-history samples)."""
     if input_mode == "prompt":
         return [s["current_prompt"] or "" for s in samples]
     if input_mode == "context":
         kw = SERIALIZE_VARIANTS[variant]
-        return [serialize(s, max_hist=max_hist, **kw) for s in samples]
+        return [serialize(s, max_hist=max_hist, strip_history=strip_history, **kw)
+                for s in samples]
     raise ValueError(f"unknown input_mode: {input_mode}")
 
 

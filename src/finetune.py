@@ -597,6 +597,15 @@ def main():
     ap.add_argument("--group_task", action="store_true",
                     help="4-class router task: labels collapsed to confusion groups "
                          "(explore/edit/execute/noncode); all samples kept")
+    ap.add_argument("--zero_history", action="store_true",
+                    help="first-step specialist: keep only zero-history samples "
+                         "(step==1, no prior actions). Full 14-class head; filters "
+                         "train+val to the no-history slice after the split")
+    ap.add_argument("--strip_history", action="store_true",
+                    help="augmented first-step specialist: train on ALL samples with "
+                         "their history STRIPPED (10x data, but labels were chosen "
+                         "given history). Eval stays on the REAL zero-history val, so "
+                         "it's directly comparable to --zero_history")
     ap.add_argument("--truncation_side", default="right", choices=["right", "left"],
                     help="left = drop the OLDEST tokens when over max_len, keeping "
                          "recent history + the PROMPT line (which sits at the end). "
@@ -620,7 +629,7 @@ def main():
     samples, y = load_samples(args.data_dir)
     max_hist = args.max_hist or None            # 0 -> None (full history)
     texts = build_texts(samples, input_mode=args.input, max_hist=max_hist,
-                        variant=args.serialize)
+                        variant=args.serialize, strip_history=args.strip_history)
     y_ids = np.array([CLASS_TO_ID[a] for a in y])
     tr, va = split_indices(y, seed=args.seed)
     if args.full_data:
@@ -651,6 +660,19 @@ def main():
         tr = tr[y_ids[tr] >= 0]
         va = va[y_ids[va] >= 0]
         logger.info(f"pair specialist {classes}: filtered to {len(tr)} train / {len(va)} val")
+    if args.zero_history:
+        zh = np.array([len(s["history"]) == 0 for s in samples])
+        tr = tr[zh[tr]]
+        va = va[zh[va]]
+        logger.info(f"zero-history (first-step) filter: {len(tr)} train / {len(va)} val")
+    if args.strip_history:
+        # train on ALL samples (history already stripped in `texts`); eval only on
+        # the REAL zero-history val so the number is comparable to --zero_history
+        assert not args.zero_history, "--strip_history and --zero_history are exclusive"
+        zh = np.array([len(s["history"]) == 0 for s in samples])
+        va = va[zh[va]]
+        logger.info(f"strip-history augmentation: {len(tr)} train (all, stripped) / "
+                    f"{len(va)} real zero-history val")
     if args.limit:
         tr, va = tr[: args.limit], va[: max(1, args.limit // 4)]
     logger.info(f"samples={len(texts)}  train={len(tr)}  val={len(va)}  max_hist={max_hist}  "
