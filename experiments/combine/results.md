@@ -71,3 +71,73 @@ SAME 3,500 via `analysis/cache/qwen3_val_logits.npz` (positionally aligned to `v
 +0.0086 macro-F1 — and granite is the FAST backbone (5:10 vs qwen3's 9:06, huge budget
 headroom), so this is parity-plus at far lower inference cost: a clear win. E8b (qwen3 arm,
 same recipe) still training (~2-3h remaining) and will be harvested separately.
+
+### SUBMISSION BUILT — E8a+LS granite (submit_0707_granite_ls.zip) 2026-07-07
+Packaged the session-best model (E8a+LS: richargs + full_data + label-smoothing ε=0.1).
+- file: `submissions/submit_0707_granite_ls.zip` (887,082,660 B ≈ 846 MB, `unzip -t` OK)
+- checkpoint: `.../granite-embedding-311m-multilingual-r2_e8a_ls_richargs_full/checkpoint-8314`
+  (trainer `best_metric` = 0.78029)
+- contents mirror the SOTA granite ref (`submit_names_single.zip`): `script.py`,
+  `requirements.txt` (transformers==4.51.3 — the version that saved the ckpt; ref used 4.48.3),
+  `serialize_variant.json` = `{"variant":"richargs"}`, `model/granite-311m-e8a-ls/` (config +
+  fp32 model.safetensors + full tokenizer). NO logit_bias.json (no-calibration policy); raw argmax.
+- VERIFICATION (all PASS): [1] serialization parity richargs (packaged serialize == `src.data`
+  build_texts, byte-for-byte on test); [2] prediction parity (packaged `script.py` submission.csv
+  == direct-model argmax, 5/5 test ids); [3] reproduced val macro-F1 on the exact `va_eval` 3,500
+  = **0.7799** (≈ trainer 0.7803; fp32+autocast vs bf16-eval noise). Ready-to-upload (user decides).
+
+### E8b Result — 2026-07-07 (qwen3-0.6B + richargs + full_data @512, HARVESTED)
+Same matched 3,500 held-out slice, same protocol as E8a (uncalibrated raw-logit argmax,
+sklearn macro-F1; the untouched 25% that `--full_data` folds OUT of training). Champion
+qwen3 restricted to the SAME 3,500 via `analysis/cache/qwen3_val_logits.npz`.
+
+- **E8b qwen3+richargs+full_data (uncal)** : **0.7643**  (`output/pat/ft_results_e8b.csv`; ignore cal 0.7773 per no-calibration policy)
+- **champion-qwen3 on same 3,500 held-out** : **0.7620**  (identical matched-slice baseline as E8a)
+- **Δ (E8b − champion-slice)** : **+0.0023**  (qwen3 richargs+full_data barely edges its own champion on CV)
+- directional CV-vs-LB (not matched): E8b 0.7643 vs LB SOTA 0.77427 = **−0.0099** (own held-out CV vs the LB's hidden test — informational only)
+
+### E8 SUMMARY — granite WINS the matched CV slice (2026-07-07)
+Both arms on the SAME untouched 3,500 held-out slice, uncalibrated:
+
+| arm | recipe | uncal macro-F1 | Δ vs champion-slice (0.7620) | inference |
+|---|---|---|---|---|
+| **E8a** | granite-311m + richargs + full_data | **0.7706** | **+0.0086** | 5:10 (fast) |
+| **E8b** | qwen3-0.6B + richargs + full_data | **0.7643** | +0.0023 | 9:06 (near cliff) |
+
+- **Headline:** on the matched CV slice, **E8a granite (0.7706) BEATS E8b qwen3 (0.7643) by +0.0063**,
+  and it's the *fast* backbone (5:10 vs 9:06, huge budget headroom vs qwen3's 9:06/10:00 cliff).
+  Both arms beat champion-qwen3-on-slice (0.7620); qwen3-richargs-full only by +0.0023.
+- **⚠️ CV ≠ LB caveat:** the richargs lesson (richargs > richmeta on LB despite byte-identical CV)
+  proves the hidden test rewards things CV can't see; and qwen3 carried a +0.025 LB edge over bge
+  historically. So the LB granite-vs-qwen3 ranking may **invert** the CV ranking — CV deltas here
+  are directional only. Both arms sit below LB SOTA on their own held-out CV (E8a −0.0037, E8b
+  −0.0099 vs 0.77427), but that is own-CV vs hidden-test, not a matched comparison.
+- **Recommendation:** build BOTH zips (recipe per EXPERIMENTS.md invariants, NO logit_bias) and
+  let the user submit — granite is the CV winner AND the fast/cheap backbone (submit-safe budget),
+  while qwen3 may still take the LB on its historical backbone edge. LB is the final judge.
+- figure: `experiments/combine/figures/e8_combine_granite_vs_qwen3.png`
+  (E8a 0.7706 vs E8b 0.7643 vs champion-slice 0.7620, dashed line at LB SOTA 0.77427)
+
+### E8a+LS Result — 2026-07-07 (LS transfer to the full E8 recipe — TOP SUBMISSION CANDIDATE)
+The E9 label-smoothing win (+0.0107 on the granite v1 screen) **TRANSFERS to the full E8
+recipe.** Same matched 3,500 held-out slice, same protocol as E8a/E8b (uncalibrated
+raw-logit argmax, sklearn macro-F1; the untouched 25% that `--full_data` folds OUT of
+training). Recipe = granite-311m + richargs + `--full_data` + `--loss ls` (ε=0.1), NO bias.
+
+- **E8a+LS granite+richargs+full_data+LS (uncal)** : **0.7803**  (`output/pat/ft_results_e8a_ls.csv`, tag `e8a_ls_richargs_full`; ignore cal 0.7856 per no-calibration policy)
+- **E8a granite CE, same recipe (uncal)**          : **0.7706**  (baseline for the LS delta)
+- **Δ LS transfer (E8a+LS − E8a)**                 : **+0.0097**  (label smoothing on top of the full recipe)
+- vs **E8b qwen3 CE** 0.7643 → **+0.0160**;  vs **champion-qwen3-slice** 0.7620 → **+0.0183**
+- directional CV-vs-LB (not matched): E8a+LS 0.7803 vs LB SOTA 0.77427 = **+0.0060 ABOVE SOTA on CV**
+  — first arm of the session to clear SOTA on its own held-out slice (own-CV vs hidden-test, informational only)
+- figure: `experiments/combine/figures/e8a_ls_transfer.png`
+  (E8a+LS 0.7803 vs E8a 0.7706 vs E8b 0.7643 vs champion-slice 0.7620, dashed line at LB SOTA 0.77427, winner highlighted)
+
+**Verdict:** **E8a+LS = 0.7803 is the best CV of the session** — LS stacks cleanly on the
+3 confirmed axes (granite backbone × richargs × full_data), adds +0.0097 over the CE E8a,
+and lands +0.0060 above LB SOTA on CV, all on the **FAST granite backbone** (5:10 vs qwen3's
+9:06 — huge inference-budget headroom). **This is the top submission candidate.**
+⚠️ **CV ≠ LB caveat still applies** (the richargs lesson: the hidden test rewards things CV
+can't see, and CV deltas here are directional only) — but this stacks 3 LB-confirmed axes
+plus the E9-confirmed LS win. Build the zip (recipe per EXPERIMENTS.md invariants, NO
+logit_bias); LB is the final judge.

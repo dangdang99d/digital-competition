@@ -23,6 +23,51 @@ Baseline: champion qwen3 v1@512 = 0.7682 uncal (E9 screening arms baseline = sam
 ## Results
 (append: date · experiment · arm · Δ vs baseline · figure · commit)
 
+### 2026-07-07 · E9 — Macro-F1-targeted loss screen (granite-311m, v1@512, 80/20 split, 3ep, lr 2e-5)
+Same backbone/recipe across all three arms; only the training loss differs. Uncalibrated
+`val_macro_f1` (calibrated columns ignored per the no-calibration rule).
+
+| arm | val_macro_f1 | Δ vs CE | verdict |
+|---|---|---|---|
+| CE (control) | **0.7458** | — | baseline |
+| focal γ=2 | 0.7403 | **−0.0055** | ❌ hurts — close this axis |
+| label smoothing ε=0.1 | **0.7565** | **+0.0107** | ✅ WINNER — promote |
+
+**Verdict: promote label smoothing (ε=0.1) to the champion recipe** — +0.0107 clears the
++0.003 promotion bar by 3.5×. LS *replaces* CE (no aux objective), so this is a clean read:
+plain CE on the imbalanced classes (edit_file 15.8% vs web_search 1.8%) was leaving macro-F1
+on the table, exactly the E9 hypothesis. **Focal loss is closed** (−0.0055) — γ=2 down-weighting
+did not help the tail here.
+
+Figure: `experiments/training/figures/e9_loss_screen.png`
+Sources: `output/pat/ft_results_e9_{ce,focal,ls}.csv`
+
+**Follow-up (blocking before it enters the final submission recipe):** re-test LS ε=0.1 on the
+champion / E8 recipe (qwen3 / E8b, baseline 0.7682) to confirm the granite-screen win transfers
+to the qwen3 backbone. A granite screen win does not guarantee transfer — verify on champion
+before baking LS into the submission recipe.
+
+### 2026-07-08 · E11 — TAPT (task-adaptive continued pretraining), granite-311m · **WIN**
+Two-stage: (1) continued **MLM pretraining** of granite-311m on our ~70k serialized train
+texts (the domain corpus) → `output/pat/granite_tapt_mlm/final`; (2) the standard
+classification-FT from that TAPT'd encoder. Control is the E9 plain-CE arm — **same
+backbone, same classification recipe**, only the encoder init differs (TAPT'd vs base), so
+this is a clean read of TAPT alone. Recipe: `full_ft`, linear head, 3ep @ lr 2e-5,
+max_len 512, serialize v1. Uncalibrated `val_macro_f1` (calibrated column ignored).
+
+| arm | encoder init | val_macro_f1 | Δ vs CE control |
+|---|---|---|---|
+| E9-CE (control) | base granite-311m | **0.7458** | — |
+| **E11 — TAPT** | MLM-pretrained on 70k domain texts | **0.7592** | **+0.0134** |
+
+**Read-out → E11 is a WIN. TAPT HELPS.** Continued MLM pretraining on the in-domain
+serialized corpus lifts granite +0.0134 over the non-TAPT control — well past the +0.003
+promotion bar. Orthogonal to the loss axis (E9); adapting the encoder to the domain
+distribution before classification-FT recovers real signal on this task.
+
+Figure: [figures/e11_tapt.png](figures/e11_tapt.png)
+Sources: `output/pat/ft_results_e11.csv` (tag `e11_granite_tapt`), `output/pat/ft_results_e9_ce.csv` (tag `e9_granite_ce`)
+
 ## Round-2 paper additions (web search 2026-07-07)
 - E12 weight averaging → **moved to research/combine** (user call 2026-07-07: pure
   performance-stacking device, no task hypothesis — it's the final stage before zipping).

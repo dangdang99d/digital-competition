@@ -1,0 +1,72 @@
+{
+ "qe": {
+  "n_pairs": 431,
+  "xling_cosine_bge_m3_mean": 0.7951123011914317,
+  "xling_cosine_bge_m3_median": 0.8005461096763611,
+  "frac_cosine_below_0.55": 0.009280742459396751,
+  "comet_kiwi_mean": null,
+  "comet_note": "skipped: ModuleNotFoundError: No module named 'pkg_resources'"
+ },
+ "worst_cosine_pairs": [
+  {
+   "cos": 0.428,
+   "orig": "급한 건데 여기 클러스터 접속 셋업 블록이 ci.yml랑 토씨 하나 안 틀리고 같음. 공통 함수로 빼서 둘 다 source 하게 정리하자 ㅎㅎ",
+   "trans": "So, I'm going to start with a simple function, so I'm going to start with a simple function, so I'm going to start with a simple function, so I'm going to start with a simple funct"
+  },
+  {
+   "cos": 0.52,
+   "orig": "없으면 직접 짜야지. Run에 호출 카운트 제한 로직 추가해줘",
+   "trans": "If you don't, you'll have to draw it yourself."
+  },
+  {
+   "cos": 0.523,
+   "orig": "참고로 오 in-place로 바뀜. destroy 사라졌네 다행이다 ㅎㅎ fmt랑 validate만 한번 돌려서 깔끔한지 보고",
+   "trans": "I'm glad to see that you're not here."
+  },
+  {
+   "cos": 0.546,
+   "orig": "go 라우트 쪽이네. 그 파일 열어봐",
+   "trans": "It's on the go-rout."
+  },
+  {
+   "cos": 0.572,
+   "orig": "고친거 타입이랑 정적분석 한번 봐줘",
+   "trans": "You're gonna have to look at the guy and the static."
+  },
+  {
+   "cos": 0.574,
+   "orig": "어 아무 데서도 안 부르네 ㅎㅎ 그럼 tsconfig 테스트라도 통과는 하는지 확인해줘",
+   "trans": "I'm not calling anywhere. I'm not calling anywhere."
+  },
+  {
+   "cos": 0.574,
+   "orig": "이제 아직 안 쓰고 있구나. Runner에 탭하면 갤러리 열고 선택한 이미지 보여주게 추가해줘 오늘 안에",
+   "trans": "Now, I'm not using it yet."
+  },
+  {
+   "cos": 0.584,
+   "orig": "근데 재시도 안 해야 되는 경우도 있잖아. 4xx는 그냥 바로 던져야 하는데 그 처리도 들어갔어? handleError 부분 다시 보자",
+   "trans": "But sometimes you don't have to re-throw it."
+  },
+  {
+   "cos": 0.585,
+   "orig": "어디가 문제야 그 함수 좀 보자 ㅎㅎ",
+   "trans": "I'll see what I can do."
+  },
+  {
+   "cos": 0.585,
+   "orig": "통과하네 다행 ㅠㅠ 마지막으로 전체 빌드 한 번만 더 확인 천천히",
+   "trans": "Thank you for passing."
+  },
+  {
+   "cos": 0.592,
+   "orig": "Dockerfile도 캐시 깨지게 빌드 인자 한 줄 손봐야해",
+   "trans": "We'll have to find a file to break the cache."
+  },
+  {
+   "cos": 0.593,
+   "orig": "getUser 스키마랑 UserOut 이거 필드 중복 많음. 정리하려는데 일단 스키마 파일부터 보자",
+   "trans": "I'm trying to sort it out, but let's start with the schema file."
+  }
+ ]
+}

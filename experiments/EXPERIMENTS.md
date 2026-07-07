@@ -30,26 +30,101 @@ branches off it are fine; merge back when the result lands).
 | E1 | first-step | Ceiling A/B (zero_history / strip_history) | hist0@slice 0.555 | task0 zero_hist **0.4283**, task1 strip_hist **0.4407** — both ≪ generalist 0.555 (specializing HURTS ~−0.11) | (harvesting) | — | ✅ DONE — first-step weakness **intrinsic**; don't build a specialist |
 | E2 | serialization | richargs × Qwen3 (single-axis ablation) | qwen3 0.7682 | — | — | — | ⛔ gated on E8b — run ONLY if E8b disappoints (attribution) |
 | E3 | pruning | FFN whitened-SVD probe (training-free) | champion rank-1.0 = 0.7734 (parity ✓) | ✅ FFN low-rank: **−0.26pt @ r=512** (66% params kept), **+0.4pt @ r=768** (denoises), cliff <r≈384 (−1.35pt @ 50% params) | [ffn_svd_degradation](pruning/figures/ffn_svd_degradation.png) | n/a (probe) | ✅ DONE — **E4 = GO** (FFN=44% params, the compression prize) |
-| E4 | pruning | SVD prune + recovery FT | 0.7682 + E3 curve (FFN r=512 −0.26pt / r=384 −1.35pt) | — | — | — | 🟢 GO (E3 unblocked) — factorize FFN r≈384–512 as down·up + short recovery FT to close the gap; needs from_pretrained story; big (~6h), dispatch on a free GPU |
+| E4 | pruning | SVD prune + recovery FT | E8b 0.7643 (net) | ✅ **0.7688 — compression NET-POSITIVE**: FFN factored r=512 (~33% FFN / ~15% whole-model params cut) + recovery **BEATS uncompressed E8b by +0.0045**; SVD-LLM diff MATCH | [e4_recovery](pruning/figures/e4_recovery.png) | — | ✅ **DONE — E4 WIN** (ship-able compressed qwen3; recovery closes gap + low-rank FFN denoises). Next: r=384 for more compression |
 | E5 | reasoning | Reasoning-FT → head A/B | qwen3 0.7682 | — | — | — | ✋ ON HOLD — user will plan further; do NOT dispatch |
 | E6 | deferral | Two-model per-class-τ fallback robustness | qwen3 0.7682 | ❌ FAILS robustness: overall +0.0047 but held-out **au −0.0033**, **first-step −0.0016** (beats base on only 2/4 slices) | [e6_robustness](deferral/figures/e6_robustness.png) | n/a (dropped) | ❌ DROP — gain is sim/later-step majority artifact; 2× inference not justified |
 | E7 | deferral | ~~Session-lookup deferral~~ | — | — | — | — | 🚫 DO NOT ATTEMPT — competition-rules risk (user decision 2026-07-07) |
-| E8 | combine | **Max-performance combo** (backbone × richargs × full-data) | **LB SOTA 0.77427** | **E8a granite ✅ 0.7706** (Δ **+0.0086** vs champion-qwen3 same 3.5k slice=0.7620, n=3500/3500; −0.0037 vs LB SOTA directional) · E8b qwen3 — | [e8a_vs_champion](combine/figures/e8a_vs_champion_slice.png) | E8a zip pending (build in quieter box) | 🏃 **E8a DONE** (fast backbone beats champion-slice!) · E8b qwen3 running GPU0 ~2h · **TOP PRIORITY** |
-| E9 | training | Macro-F1-targeted losses (focal / label-smoothing screen) | granite plain-CE control (same recipe) | — | — | — | 🏃 RUNNING all 3 arms — CE GPU2, focal GPU1, ls GPU3 (granite v1@512 std split); CE anchor ≈0.7153; winner (Δ>+0.003) → champion recipe |
+| E8 | combine | **Max-performance combo** (backbone × richargs × full-data [× LS]) | **LB SOTA 0.77427** | 🏆 **E8a+LS granite 0.7803** (LS +0.0097 vs E8a 0.7706; **+0.0060 ABOVE SOTA on CV**) · E8b+LS qwen3 0.7659 (LS +0.0016, weak on qwen3) · E8a 0.7706 · E8b 0.7643 · CV≠LB | [e8a_vs_champion](combine/figures/e8a_vs_champion_slice.png) · [e8a_ls_transfer](combine/figures/e8a_ls_transfer.png) | ✅ **`submit_0707_granite_ls.zip` BUILT+VERIFIED** (val-F1 reproduced 0.7799, parity 5/5, no logit_bias, richargs; ⚠ pins transformers==4.51.3) — READY TO UPLOAD (user's call) · qwen3 zip after E8b+LS | ✅ **E8a+LS = best model of session** · TOP submission (upload-ready) · **TOP PRIORITY** |
+| E9 | training | Macro-F1-targeted losses (focal / label-smoothing screen) | granite CE control 0.7458 | **LS ε=0.1 WINS +0.0107** (0.7565 vs CE 0.7458); focal γ=2 **−0.0055** (0.7403, hurts) | [e9_loss_screen](training/figures/e9_loss_screen.png) | — | ✅ DONE — **promote LS ε=0.1** (clears +0.003 bar 3.5×); close focal. Follow-up: confirm LS transfers to qwen3/E8 recipe (E8a+LS running GPU1; E8b+LS TBD) before final recipe |
 | E10 | training | Ensemble→single distillation | best single at that time | — | — | — | 🕐 DEFERRED (user 2026-07-07): ensemble ceiling is correlated-error-bounded (E6 lesson) — attempt only in the final days before deadline if GPUs idle |
-| E11 | training | TAPT continued pretraining (granite MLM on serialized texts) | same-recipe non-TAPT control | — | — | — | 🟢 READY (user-approved 2026-07-07) — dispatch on a free GPU, below E9 priority |
-| E12 | combine | Weight averaging (multi-seed soup + intra-run SWA) — stacks onto E8 winner | best single seed of same recipe | — | — | — | 🟢 READY — piggybacks on E9/E11 runs (save per-epoch ckpts); near-free gain candidate |
+| E11 | training | TAPT continued pretraining (granite MLM on serialized texts) | E9 CE control 0.7458 (non-TAPT) | ✅ **0.7592 — TAPT HELPS +0.0134** vs non-TAPT 0.7458 (granite MLM-pretrained on 70k serialized texts → classify-FT) | [e11_tapt](training/figures/e11_tapt.png) | — | ✅ **DONE — E11 WIN** (domain MLM pretraining lifts granite; `src/mlm_tapt.py`, run_mlm ref; bs4 fixed attempt1 OOM) |
+| E12 | combine | Weight averaging (multi-seed soup + intra-run SWA) — stacks onto E8 winner | best single seed of same recipe | ⚠️ 3 granite+LS seeds trained (42=0.7803, 43=0.7758, 44=0.7628 — **each on its OWN slice**, `--seed` conflates split+init) → soup DEPRIORITIZED (contaminated; clean same-split soup is the proper test) | — | — | 🟡 seeds done, soup deprioritized (caveated). **NB: STACK run (TAPT+richargs+LS)=0.772 also < E8a+LS 0.7803 → TAPT doesn't stack; nothing beat 0.7803 yet** |
 | E13 | training | ~~SAM fine-tune~~ | — | — | — | — | ❌ CLOSED by analysis (user+evidence 2026-07-07): near-zero run variance (richmeta/richargs twins Δ=2e-5), error is intrinsic ambiguity, val≈LB; revive ONLY if E12 soup Δ>+0.005 |
 | E14 | training | Session-grouped split protocol test (leak-free CV) | original qwen3: interleaved-val 0.7682 vs KNOWN LB 0.76698 | — | — | n/a (protocol) | 🟡 LOW priority — 1 grouped retrain of original qwen3 recipe; expectations LOW (uncal val-LB gaps already ≤0.008 and inconsistent) |
-| E15a | translation | NLLB-600M qualification (GO/NO-GO; tournament dropped — MT scales with size) | quality/preservation/throughput bars | — | — | n/a | 🟢 READY — ~20 min GPU; sample sheet → user; ⚠ CC-BY-NC license check; m2m100 = licensed fallback |
+| E15a | translation | NLLB-600M qualification (GO/NO-GO) | 10-min inference budget | ❌ **NO-GO (throughput)**: NLLB-600M = **93 min for 30k** (~31 min even @3× speedup) ≫ 10-min budget (which must also fit the classifier) — translation-at-inference is budget-infeasible | — | n/a | ❌ CLOSED — throughput kills it; **closes E15b/c/d** (all gated). Translate-then-EN-classify not viable under budget |
 | E15b | translation | Code-span protection (mask→translate→restore) | E15a preservation rate | — | — | n/a | ⛔ gated on E15a pick |
 | E15c | translation | EN-data classifiers vs KO baselines (incl. DeBERTa-v3 / ModernBERT-large EN-only) | each backbone's KO twin (qwen3 0.7682 etc.) | — | — | — | ⛔ gated on E15a+b — THE payoff test; valid version of teammate's experiment |
 | E15d | translation | Translator compression (vocab-prune/fp16) + 30k budget fit | E15a full-size translator quality/throughput | — | — | — | ⛔ gated on E15c success |
-| E16 | pruning | qwen3 depth-prune 28L→14L + recovery FT (size/2, time/2, bge precedent +0.01 LB) | E8b/champion same recipe unpruned | — | — | — | 🟢 READY after E8b lands (prune its ckpt); high value: fixes 9:06 budget + 본선 speed score |
+| E16 | pruning | qwen3 depth-prune 28→14 + recovery — **ShortGPT layer selection** (cosine redundancy) | E8b unpruned 0.7643 | ✅ **0.7638 — depth-prune ~FREE**: 14 layers (HALF depth → ~2× faster) + recovery = **−0.0005 vs full 28L** (kept `[0-7,9-11,19,21,27]`) | — | — | ✅ **DONE — E16 WIN** (~2× speed at ~same acc; stacks with E4 FFN-factor for a heavily-compressed qwen3) |
 | E17 | combine | Inference engineering: token-budget batching (replaces fixed B=64) + length-sort everywhere | current script timing on 30k-scale load | — | — | n/a (goes into every zip) | 🟢 READY — pure local work, no GPU training; measure on 3090, OOM-safe by construction |
+| E18 | pruning | **LTP token pruning** (drop unimportant tokens mid-network; ~2× throughput <1% drop on RoBERTa-class) | same model without token pruning (acc + ms/sample) | — | — | — | 🟢 READY (user-approved) — moderate engineering; ToMe merge = fallback if LTP fails |
 
 Status legend: ⏸ blocked-external · ⛔ gated · 🔎 analysis · 🏃 running · ✅ done · ❌ refuted
 New figures → `experiments/<branch>/figures/`; the `figures/` root holds pre-branch legacy plots.
+
+## Experiment relationship graph
+
+```mermaid
+flowchart TD
+    %% ============ RUNNING ============
+    E8["E8 🏃 max-perf combo<br/>E8a granite / E8b qwen3<br/>richargs+full_data"]
+    E1["E1 🏃 first-step ceiling A/B<br/>zero_history vs strip_history"]
+
+    %% ============ COMBINE / DEPLOY ============
+    E12["E12 🟢 weight soup<br/>(isolated Δ reporting)"]
+    E17["E17 🟢 token-budget batching<br/>(goes into EVERY zip)"]
+    ZIP(["📦 submission zip ≤1GB<br/>(upload = user only)"])
+
+    %% ============ TRAINING SCREENS ============
+    E9["E9 🟢 loss screen ×5 arms<br/>granite, transfer assumption"]
+    E11["E11 🟢 TAPT granite-MLM"]
+    E14["E14 🟡 grouped-split protocol"]
+    E13["E13 ❌ SAM (closed)"]
+    E10["E10 🕐 ensemble distill<br/>(pre-deadline only)"]
+
+    %% ============ PRUNING ============
+    E3["E3 🔓 FFN probe: whitened-SVD<br/>vs Wanda-sp vs FLAP"]
+    E4["E4 ⛔ prune + recovery ladder<br/>none→EoRA→FT→E4b distill"]
+    E4b["E4b Minitron distill-recovery<br/>baseline = E4 itself"]
+    SLICE["SliceGPT<br/>(contingency)"]
+    E16["E16 🟢 qwen3 depth 28→14<br/>ShortGPT selection"]
+    LACO["LaCo merge<br/>(fallback)"]
+    E18["E18 🟢 LTP token pruning"]
+    TOME["ToMe merge<br/>(fallback)"]
+
+    %% ============ TRANSLATION ============
+    LIC{{"⚠ NLLB license check (user)"}}
+    E15a["E15a 🟢 NLLB-600M qualification"]
+    E15b["E15b code-span protection"]
+    E15c["E15c EN-retrain vs KO twins<br/>qwen3/granite/DeBERTa arms"]
+    E15d["E15d translator compression<br/>recovery = EoRA"]
+    COMBO(["qwen3+NLLB 0.96GB combo<br/>fallback granite+NLLB 0.72GB"])
+    TM{{"teammate retrain OOF<br/>(pending from user)"}}
+
+    %% ============ closed/held (context) ============
+    E2["E2 ⛔ richargs×qwen3 ablation"]
+    E5["E5 ✋ reasoning-FT (user plans)"]
+
+    %% ---- gates / feeds ----
+    E8 -->|"winner recipe"| E12 --> ZIP
+    E17 --> ZIP
+    E8 -.->|"only if E8b disappoints"| E2
+    E8 -->|"E8b ckpt"| E16
+    E8 -.->|"ckpts as teachers (late)"| E10
+    E9 -->|"winning loss → champion recipe"| E12
+    E11 -->|"if +0.003 → recipe stage"| E12
+    E9 -->|"control run reused"| E11
+    E9 -->|"per-epoch ckpts"| E12
+    E12 -.->|"Δ>0.005 revives"| E13
+    E14 -.->|"if wins: grouped screening for finals"| ZIP
+
+    E3 -->|"winning family"| E4 -->|"if ≥ baseline"| E4b
+    E3 & E4 -.->|"both fail"| SLICE
+    E16 -.->|"selection worse than uniform"| LACO
+    E16 --> E18
+    E18 -.->|"acc cost >0.005"| TOME
+    E16 --> COMBO
+    E4 --> ZIP
+    E16 --> ZIP
+    E18 --> ZIP
+
+    LIC --> E15a --> E15b --> E15c -->|"EN wins"| E15d --> COMBO --> ZIP
+    TM -.->|"rescopes"| E15c
+    E15c -.->|"all EN arms lose → close branch"| E15a
+```
+
+Solid arrows = gate/feed (downstream needs upstream). Dashed = contingency/fallback
+(fires only on the labeled condition). 🚫E7 and ❌E6/E13 excluded from flow (closed).
 
 **Sync state (2026-07-07, tick 1):** `src/`, `data/`, `analysis/cache/*_val_logits.npz` all present; HF reachable (base backbones download on demand). **Trained model weights were NOT synced as loose `output/` checkpoints — they live inside the `submissions/*.zip` archives** (unzip the relevant one to recover tensors; e.g. champion qwen3 = `submit_0703_qwen3_pruned.zip`, SOTA granite = `submit_names_single.zip`). Working tree is **mid-reorg** (`experiments/` itself untracked, `presentation/` deletions staged) → **subagents write results/figures but do NOT git-commit this tick**; supervisor handles git deliberately with the user.
 
@@ -91,6 +166,7 @@ New figures → `experiments/<branch>/figures/`; the `figures/` root holds pre-b
 ## Invariants (apply to every experiment)
 
 - **NO logit calibration.** Raw uncalibrated logits, argmax, `val_macro_f1` only.
+- **On repeated failure: retry ~3–4 times (trying fixes each time), then MOVE ON — never stall or retry indefinitely.** If an experiment/step still fails after ~3–4 attempts, mark it **BLOCKED** in its Dashboard row AND its branch `results.md` with exactly WHERE/WHY it failed (the error, log tail, or missing dependency), then proceed to the next queue item. **Record every failure in the markdown for the user's later confirmation**; batch failures into reports — don't ask mid-loop. (A subagent looping on the *same identical* error counts as one attempt — don't let it spin.)
 - **Python** = `/home/ocean/miniconda3/envs/dacon/bin/python` (conda env `dacon`).
 - Eval protocol: `split_indices(seed=42)` — 56k train / 14k val. First-step slice =
   the 1,807 zero-history val samples. Any post-hoc rule with fitted params: honest
@@ -109,6 +185,32 @@ New figures → `experiments/<branch>/figures/`; the `figures/` root holds pre-b
   `submit_<MMDD>_<tag>.zip`. **NO logit_bias.json in new zips** (no-calibration
   decision). Building the zip is pre-approved; UPLOADING it is not — flag it in the
   Dashboard Zip column and the user decides.
+- **Paper-method implementations: get the official code first.** When implementing
+  anything from a paper (FLAP, Wanda-sp, LTP, ShortGPT, SliceGPT, Minitron recovery,
+  CometKiwi, LA loss, …), find and download the authors' GitHub repo and COMPARE our
+  implementation against theirs before trusting results — papers routinely omit
+  critical details (score normalization, eps/clamps, calibration-batch handling,
+  where the bias fold happens, token-type quirks). Divergences from the paper's
+  reported behavior get checked against the reference code, not re-derived from the
+  paper text. If no official code exists, find the most-starred reproduction and note
+  which one was used in the experiment's Result entry.
+- **Eval-server environment (confirmed from rules page 2026-07-07): T4 GPU 16GB ·
+  3 vCPU · 12GB RAM · offline · ≤1GB zip · ≤10min inference.** **NEVER project server timing from
+  local hardware by a fixed factor — such projections have repeatedly been wrong
+  (user experience). Budget predictions use MEASURED SERVER ANCHORS only:** qwen3
+  9:06 · granite 5:10 · bge@1024 4:35 · bge-12L 2:29 · int8-qwen3 TIMEOUT (all actual
+  eval-server times from past submissions). Predict a new variant only RELATIVE to
+  its nearest anchor under a like-for-like change (e.g. depth-halved qwen3 ≈ ½ of
+  9:06, same pipeline) and treat that as an estimate, not a guarantee. Anything with
+  NO anchor (e.g. a translator stage) has UNKNOWN server time until a submission
+  measures it — first submission of any new pipeline must be the most conservative
+  (fastest) variant to bank an anchor before risking richer ones. Local 3090 timings
+  (E17) are for RELATIVE comparisons between our own variants only. 3 vCPU means
+  tokenization/preprocessing is CPU-bound at inference — batch the tokenizer, avoid
+  per-sample Python loops. 12GB RAM caps how much we can hold in memory at once.
+  License rule: external models need only LICENSE COMPLIANCE, not commercial-use
+  rights ("법적 제한이 없는 사전 학습 모델… 확인하고 준수"); NLLB CC-BY-NC = gray zone
+  → organizer Q&A question posted by user; m2m100 (MIT) = clean fallback.
 - **Every test names its baseline** and reports Δ against it — never a bare number.
   The **project champion baseline is Qwen3-0.6B full-FT v1@512 = 0.7682 uncal**
   (`output/pat/ft_Qwen__Qwen3-Embedding-0.6B/checkpoint-10500`, val logits cached at
@@ -292,8 +394,13 @@ full_data) to isolate which axis failed to transfer to qwen3.
 ### E3 · FFN whitened-SVD probe (training-free) — READY (needs qwen3 ckpt synced) — 1 GPU, ~30m
 **Hypothesis:** FFN (44% of params — the real compression prize; naive width-slice
 failed) is as low-rank as K/V were (95.5% energy @ 25% rank, −0.5pt @ 50% rank).
-**Test:** extend `analysis/palu_probe.py` to gate/up/down projections; same whitened
-truncation, same ratio sweep, uncal macro-F1 curve on 3k val.
+**Test (3-scorer FFN probe, user-approved 2026-07-07):** extend `analysis/palu_probe.py`
+to gate/up/down with THREE methods at equal parameter budgets (50/37.5/25%), all off
+one calibration pass: (a) whitened-SVD low-rank; (b) **Wanda-sp** neuron slice
+(|W|·‖X‖ scoring — official repo required per invariant); (c) **FLAP** neuron slice
+(fluctuation scoring + bias-fold compensation — repo: CASIA-IVA-Lab/FLAP). CFSP
+dropped (user: too complicated; revisit only if per-layer budget allocation becomes
+the bottleneck). Winner's family goes to E4.
 **Baseline:** the UNMODIFIED champion ckpt on the identical 3k-val subset, evaluated
 in the same script run (the rank-1.0 row — was 0.7734 on this subset for the KV probe;
 re-print it, never compare against full-val numbers across subsets).
@@ -311,6 +418,18 @@ possibly × depth-prune × vocab-prune ⇒ granite-size model at qwen3 accuracy)
 **Baselines (two):** (a) champion qwen3 = **0.7682** full-val — the net-loss check;
 (b) the SAME pruned model training-free from E3's curve — isolates what recovery
 fine-tuning itself buys at that rank.
+**Recovery ladder (user-approved): none → EoRA (training-free closed-form low-rank
+compensation, minutes/point — measure on every sweep point; if within ~0.002 of full
+recovery, skip the FT) → recovery-FT → E4b distill. EoRA ships as a parallel low-rank
+branch (needs load-hook; small extra params).**
+**E4b · Minitron-style distill-recovery (user-approved follow-up, gated on E4 ≥
+baseline):** rerun E4's best configuration but replace plain recovery-FT with
+distillation from the UNPRUNED parent (`--distill_from` its train-logits; NOT the
+deferred E10 — teacher is the model's own parent, single-model). **Baseline for E4b =
+the original E4 result** (same pruned architecture, plain recovery). Report Δ(distill −
+plain recovery) explicitly.
+**Contingency (user 2026-07-07):** if E3/E4 both fail → try SliceGPT (PCA-rotate then
+slice hidden dim — the principled width prune) as the alternative width axis.
 **Status:** blocked by E3. **Result:** —
 
 ### E5 · Reasoning-FT → head A/B — ✋ ON HOLD (user decision 2026-07-07)
@@ -358,10 +477,14 @@ timing, only if E15c passes. Baselines: per-arm KO twins; budget guard ≤ ~2-3 
 translation share.
 
 ### E16 · qwen3 depth-prune + recovery — 🟢 READY once E8b checkpoint exists
-28L→14L (evenly-spaced keep, prune_layers exists) on the E8b winner → recovery FT
-(1-2ep low LR) → uncal val vs unpruned twin. bge precedent: −40% size, 1.85× faster,
-**+0.01 LB**. Payoff: fixes the 9:06/10:00 qwen3 budget, feeds the 본선 speed score
-(10%), enables the qwen3+NLLB 1GB combo (translation branch), smaller zip.
+28L→14L on the E8b winner → recovery FT (1-2ep low LR) → uncal val vs unpruned twin.
+**Layer SELECTION = ShortGPT-style (user-approved):** rank layers by cosine(input,
+output) redundancy on ~1k calibration samples; drop the 14 least-transforming (vs our
+old evenly-spaced heuristic). Report the selection map. **Fallback if ShortGPT
+selection underperforms evenly-spaced: LaCo-style merge** (average the dropped layer
+into its neighbor) before giving up on the extra depth.
+bge precedent: −40% size, 1.85× faster, **+0.01 LB**. Payoff: fixes the 9:06 budget,
+feeds the 본선 speed score (10%), enables the qwen3+NLLB 1GB combo, smaller zip.
 Read-out: Δ ≥ −0.002 vs unpruned → adopt for deployment; also report inference time.
 
 ### E17 · Inference engineering: dynamic token-budget batching — 🟢 READY (no training)
@@ -371,6 +494,22 @@ apply to OUR script template AND the granite/SOTA-style script (which currently 
 even length-sort). Measure: ms/sample + total projected 30k time on a 3090 synthetic
 load, before/after, per model (granite/qwen3/12L variants). Lands in every future zip;
 also widens the time margin the translation route needs.
+
+### E18 · LTP token pruning — 🟢 READY (user-approved 2026-07-07) — 1 GPU, ~4h
+**Source:** Learned Token Pruning (Kim et al.) / PoWER-BERT lineage.
+**Mechanism:** learn per-layer attention-score thresholds; tokens below threshold are
+DROPPED as the sequence flows through — classification needs only the pooled vector,
+so most tokens can vanish mid-network. Attacks SEQUENCE LENGTH (orthogonal to weight
+pruning; compounds with E16 depth-prune and E17 batching). Literature: ~2× throughput
+at <1% accuracy on RoBERTa-class encoders.
+**Test:** apply to the best deployment candidate (granite or qwen3 per E8); train with
+pruning enabled, threshold sweep for the accuracy/speed knee; report uncal val AND
+ms/sample vs the same model without token pruning.
+**Shipping caveat:** custom forward must survive from_pretrained in the zip (same
+class of work as E4's factored modules — plan the load-hook up front).
+**Fallback (user):** if LTP's accuracy cost >0.005 or engineering stalls → ToMe-style
+token MERGING (training-free variants) before abandoning the token axis.
+**Status:** ready, queue behind E16. **Result:** —
 
 ### Backlog / housekeeping
 - rdrop (disc task 0) never finished on the old box — superseded in spirit by supcon's

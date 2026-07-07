@@ -191,17 +191,24 @@ def reinit_top_layers(model, n):
 
 
 def prune_layers(model, keep):
-    """Structured depth pruning: keep `keep` evenly-spaced encoder layers (always
-    including the first and last), drop the rest. config.num_hidden_layers is updated
-    so the pruned checkpoint reloads with from_pretrained. Pair with --init_from to
-    prune a trained model and fine-tune to recover."""
+    """Structured depth pruning. `keep` is either:
+      - an int N: keep N evenly-spaced encoder layers (always incl. first and last), or
+      - a list/sequence of ints: keep exactly those layer indices (e.g. a ShortGPT
+        Block-Influence selection). Order is sorted; duplicates dropped.
+    config.num_hidden_layers is updated so the pruned checkpoint reloads with
+    from_pretrained. Pair with --init_from to prune a trained model and recover-FT."""
     hit = next(((name, mod) for name, mod in model.named_modules()
                 if name.endswith(("encoder.layer", "encoder.layers", "model.layers"))), None)
     assert hit, "could not locate the encoder layer list for --keep_layers"
     list_name, layers = hit
     depth = len(layers)
-    assert keep < depth, f"--keep_layers {keep} >= model depth {depth}"
-    idx = sorted(set(np.round(np.linspace(0, depth - 1, keep)).astype(int).tolist()))
+    if isinstance(keep, (list, tuple, np.ndarray)):
+        idx = sorted(set(int(i) for i in keep))
+        assert idx and idx[0] >= 0 and idx[-1] < depth, \
+            f"--keep_layer_idx {idx} out of range for depth {depth}"
+    else:
+        assert keep < depth, f"--keep_layers {keep} >= model depth {depth}"
+        idx = sorted(set(np.round(np.linspace(0, depth - 1, keep)).astype(int).tolist()))
     parent = model.get_submodule(list_name.rsplit(".", 1)[0])
     setattr(parent, list_name.rsplit(".", 1)[1],
             torch.nn.ModuleList([layers[i] for i in idx]))
@@ -592,6 +599,10 @@ def main():
     ap.add_argument("--keep_layers", type=int, default=0,
                     help="depth-prune the encoder to N evenly-spaced layers before training "
                          "(0 = off). Pair with --init_from for prune-then-recover")
+    ap.add_argument("--keep_layer_idx", default="",
+                    help="depth-prune to an EXPLICIT comma-separated set of layer indices "
+                         "(e.g. ShortGPT Block-Influence pick '0,1,2,...'). Overrides "
+                         "--keep_layers. Pair with --init_from for prune-then-recover")
     ap.add_argument("--distill_from", default="",
                     help="path to a .npz with key 'logits' of shape (n_samples, 14) in "
                          "load_samples order — teacher logits for distillation "
@@ -610,6 +621,14 @@ def main():
     ap.add_argument("--heads_keep", type=float, default=1.0,
                     help="structured width pruning: keep this fraction of attention "
                          "heads per layer (1.0 = off)")
+    ap.add_argument("--factor_ffn", type=int, default=0,
+                    help="low-rank factorize every FFN projection (gate/up/down) to "
+                         "this rank via whitened-SVD init (0 = off; E4 recovery-FT). "
+                         "Pair with --init_from to factorize a trained checkpoint and "
+                         "recover; records config.factored_ffn for reload")
+    ap.add_argument("--factor_calib", type=int, default=256,
+                    help="#train samples for the whitened-SVD calibration pass "
+                         "(--factor_ffn); E3 used 256")
     ap.add_argument("--rdrop", type=float, default=0.0,
                     help="R-Drop: second forward pass with fresh dropout, symmetric-KL "
                          "consistency penalty with this weight (0 = off). Noise-"
@@ -755,7 +774,9 @@ def main():
         add_action_tokens(tok, model)
     if args.reinit_layers:
         reinit_top_layers(model, args.reinit_layers)
-    if args.keep_layers:
+    if args.keep_layer_idx:
+        prune_layers(model, [int(x) for x in args.keep_layer_idx.split(",") if x.strip() != ""])
+    elif args.keep_layers:
         prune_layers(model, args.keep_layers)
     if args.ffn_keep < 1.0:
         prune_ffn(model, args.ffn_keep)
@@ -763,6 +784,18 @@ def main():
         prune_attn_heads(model, args.heads_keep)   # after prune_layers: fresh indices
     if args.head_layers:
         replace_head(model, args.head_layers, args.head_act)
+    if args.factor_ffn:
+        from src.factored_ffn import build_factored_model
+        # calibrate whitened-SVD on train texts (no vocab remap: a full-vocab
+        # checkpoint). Move the model to the compute device first so the 256-sample
+        # calibration pass runs on GPU when available.
+        model.to(device)
+        calib_texts = [texts[i] for i in tr[: args.factor_calib]]
+        done = build_factored_model(model, tok, calib_texts, args.factor_ffn,
+                                    max_len=args.max_len, n_calib=args.factor_calib,
+                                    device=device)
+        logger.info(f"FFN factorized to rank {args.factor_ffn} in {len(done)} "
+                    f"projections (whitened-SVD init); config.factored_ffn recorded")
 
     if args.lora:
         from peft import LoraConfig, TaskType, get_peft_model
