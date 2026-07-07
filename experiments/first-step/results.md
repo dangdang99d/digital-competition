@@ -13,16 +13,24 @@ Baseline: hist0 generalist on the 1,807 first-step val slice = 0.555 macro-F1 (q
 
 ## Results
 
-**2026-07-07 · E1 RUNNING** — bge-m3 full-FT, serialize v1, @1024, epochs 3, lr 2e-5, bs4×ga4.
-Both arms evaluate on the SAME 1,807 zero-history (first-step) val slice.
+**2026-07-07 · E1 DONE (A/B)** — bge-m3 full-FT, serialize v1, @1024, epochs 3, lr 2e-5, bs4×ga4.
+Both arms evaluate on the SAME 1,807 zero-history (first-step) val slice. Uncalibrated raw-logit
+argmax macro-F1 only (calibrated columns 0.494 / 0.5351 ignored per the no-calibration decision).
 
-- **task0 `--zero_history`** (7,193 real first-steps) — **DONE: val_macro_f1 = 0.4283 uncal**
-  (`output/pat/ft_results_firststep_0.csv`; calibrated col 0.494 ignored per no-calibration).
-  vs generalist baseline **0.555 → Δ −0.127**. The zero-history *specialist* is **much worse**
-  than the generalist — 7k first-step samples badly underfit a full-FT bge-m3. Preliminary read:
-  a dedicated first-step specialist does not reach the generalist; first-step weakness is not
-  fixable by specialization (it *hurts*).
-- **task1 `--strip_history`** (all 56k, history stripped, `turn=` kept) — RUNNING (~67%, GPU 3).
-  Controls for data quantity: if it recovers toward ~0.55 → task0's shortfall was small-data,
-  not intrinsic; if it also stays low → the first-step mapping itself is hard. Full A/B bar
-  figure + read-out on completion.
+| arm | training data | val_macro_f1 (uncal) | Δ vs generalist (0.555) | csv |
+|-----|---------------|----------------------|-------------------------|-----|
+| task0 `--zero_history`  | 7,193 real first-steps          | **0.4283** | −0.127 | `output/pat/ft_results_firststep_0.csv` |
+| task1 `--strip_history` | all 56k, history stripped (`turn=` kept) | **0.4407** | −0.114 | `output/pat/ft_results_firststep_1.csv` |
+
+Reference (same 1,807 slice): generalist hist0 bge-m3 = **0.555**; qwen3 = 0.573.
+
+![E1 first-step ceiling A/B](figures/firststep_ceiling_ab.png)
+
+**Verdict — first-step error is INTRINSIC; do NOT build a first-step / has-history branch.**
+Both dedicated specialists (0.4283, 0.4407) land **~0.11 below** the generalist's 0.555 on the
+identical slice — specializing on first-steps *hurts*. The generalist's edge is its broad,
+**history-intact**, all-position training. task1 (strip_history, all 56k) beats task0 (clean 7k
+first-step subset) by only +0.0124, so more data helps *somewhat* but even all-56k-stripped stays
+far under 0.555 → the gap is not data volume, it's training on history-intact samples. Conclusion:
+a dedicated first-step specialist cannot reach the generalist; keep the single generalist encoder
+in the submission and do not add a first-step / has-history branch.

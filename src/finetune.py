@@ -437,6 +437,47 @@ def make_aux_trainer(base_cls, rdrop=0.0, supcon=None):
     return _AuxTrainer
 
 
+def classification_loss(logits, labels, mode="ce", focal_gamma=2.0, label_smoothing=0.1):
+    """Head classification loss for the 14-class problem, computed in fp32 from the
+    head logits (N, C) + integer labels (N,). This REPLACES the model's internal CE
+    (it is NOT an added aux term).
+
+      mode="ce"    plain cross-entropy — numerically equal to F.cross_entropy and to
+                   the HF model's stock CrossEntropyLoss (the default path never
+                   routes here; see make_loss_trainer).
+      mode="focal" multiclass focal loss, mean-reduced:
+                   FL = mean[ -(1 - p_t)^gamma * log p_t ].
+      mode="ls"    cross-entropy with label smoothing (torch >= 1.10).
+    """
+    import torch.nn.functional as F
+    logits = logits.float()
+    if mode == "ce":
+        return F.cross_entropy(logits, labels)
+    if mode == "ls":
+        return F.cross_entropy(logits, labels, label_smoothing=label_smoothing)
+    if mode == "focal":
+        logp = F.log_softmax(logits, dim=-1)
+        logpt = logp.gather(1, labels.unsqueeze(1)).squeeze(1)   # log p_t
+        pt = logpt.exp()
+        return (-((1.0 - pt) ** focal_gamma) * logpt).mean()
+    raise ValueError(f"unknown --loss mode: {mode!r}")
+
+
+def make_loss_trainer(base_cls, mode, focal_gamma=2.0, label_smoothing=0.1):
+    """Trainer that swaps the head classification loss for a macro-F1-targeted
+    variant (focal / label-smoothing). mode='ce' is never wrapped by the caller, so
+    the stock Trainer loss path stays byte-identical to before."""
+
+    class _LossTrainer(base_cls):
+        def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+            outputs = model(**inputs)
+            loss = classification_loss(outputs.logits, inputs["labels"],
+                                       mode, focal_gamma, label_smoothing)
+            return (loss, outputs) if return_outputs else loss
+
+    return _LossTrainer
+
+
 def mine_boundary_weights(model, tok, texts_tr, max_len, weight, margin, device):
     """One inference pass over the train split with the --init_from checkpoint:
     samples whose top-2 logits are BOTH in the same confusion group and closer
@@ -615,6 +656,16 @@ def main():
                          "(alpha=2r, dropout .05, q/v projections + head). Pair with "
                          "--init_from: the base stays frozen, checkpoints hold only "
                          "adapter+head — built for shared-backbone specialist packs")
+    ap.add_argument("--loss", default="ce", choices=["ce", "focal", "ls"],
+                    help="head classification loss — REPLACES cross-entropy (not an "
+                         "aux term). ce = plain CE (default; path unchanged); focal = "
+                         "multiclass focal loss (see --focal_gamma); ls = CE with "
+                         "label smoothing (see --label_smoothing). Not combinable "
+                         "with --distill_from/--rdrop/--supcon/--hard_boundary")
+    ap.add_argument("--focal_gamma", type=float, default=2.0,
+                    help="focusing parameter gamma for --loss focal")
+    ap.add_argument("--label_smoothing", type=float, default=0.1,
+                    help="smoothing epsilon for --loss ls")
     args = ap.parse_args()
 
     from transformers import (
@@ -822,6 +873,12 @@ def main():
                        "group_w": args.supcon_group_w, "queue": args.supcon_queue}
                       if args.supcon else None)
         trainer_cls = make_aux_trainer(Trainer, rdrop=args.rdrop, supcon=supcon_cfg)
+    if args.loss != "ce":
+        assert teacher is None and not aux_on, \
+            "--loss focal/ls replaces the classification CE and is not combinable " \
+            "with --distill_from / --rdrop / --supcon / --hard_boundary"
+        trainer_cls = make_loss_trainer(Trainer, args.loss, args.focal_gamma,
+                                        args.label_smoothing)
     trainer = trainer_cls(
         model=model, args=targs, train_dataset=train_ds, eval_dataset=val_ds,
         data_collator=collator, compute_metrics=make_compute_metrics(len(classes)),

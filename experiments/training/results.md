@@ -1,5 +1,5 @@
 # Branch: training — loss & knowledge-transfer recipe upgrades
-Git branch: `research/training` · Experiments: E9 (losses: focal/LS/wCE/logit-adjusted), E12 (soup/SWA), E13 (SAM, backlog), E10 (ensemble-distillation — DEFERRED to pre-deadline, correlated-error bound), E11 (TAPT granite-MLM, READY — user-approved 2026-07-07)
+Git branch: `research/training` · Experiments: E9 (losses: focal/LS/wCE/logit-adjusted), E13 (SAM — CLOSED by analysis), E14 (grouped-split protocol test, LOW prio), E10 (ensemble-distillation — DEFERRED to pre-deadline, correlated-error bound), E11 (TAPT granite-MLM, READY — user-approved 2026-07-07)
 Baseline: champion qwen3 v1@512 = 0.7682 uncal (E9 screening arms baseline = same-backbone plain-CE control).
 
 ## Why these (papers/ + local evidence)
@@ -24,10 +24,12 @@ Baseline: champion qwen3 v1@512 = 0.7682 uncal (E9 screening arms baseline = sam
 (append: date · experiment · arm · Δ vs baseline · figure · commit)
 
 ## Round-2 paper additions (web search 2026-07-07)
-- **E12 weight averaging** — Model Soups (Wortsman ICML'22) / SWA (Izmailov'18): free
-  accuracy from averaging same-recipe weights; zero inference cost. Piggybacks on E9/E11.
-- **E13 SAM** — Bahri et al. 2110.08529: flat-minima optimizer, large LM-FT gains at
-  +25-100% train compute; gated behind E12 (same mechanism family).
+- E12 weight averaging → **moved to research/combine** (user call 2026-07-07: pure
+  performance-stacking device, no task hypothesis — it's the final stage before zipping).
+- **E13 SAM** — ❌ CLOSED 2026-07-07 without running: near-zero run-to-run variance
+  (richmeta/richargs twins Δ=2e-5) means no landscape variance to harvest; residual
+  error is intrinsic ambiguity; SAM gains concentrate in low-data regimes. Revive
+  only if E12 soup Δ>+0.005.
 - **E9 gains a 5th arm: logit-adjusted loss** (Menon 2007.07314) — consistent surrogate
   for balanced/macro metrics; train-time fixed log-priors, NOT post-hoc val-fit bias
   (distinct from the banned calibration; flagged for user veto).

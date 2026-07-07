@@ -1,5 +1,5 @@
 # Branch: combine — maximize LB by stacking every proven win
-Git branch: `research/combine` · Experiment: E8 (performance-max combo)
+Git branch: `research/combine` · Experiments: E8 (performance-max combo), E12 (weight averaging — the final stacking stage: E8-winning recipe × 3 seeds → soup → zip)
 Goal: beat LB SOTA 0.77427 (submit_trainall_single, granite+alldata+filenames-only).
 
 ## What the submission history proves (Notion export, 2026-07-07)
@@ -53,3 +53,21 @@ recomputed on the SAME 3,500 slice (from `analysis/cache/qwen3_val_logits.npz`),
 - **E8b qwen3-0.6B** — GPU 0, ~33% (epoch 1), ETA ~3-4h (long pole). `output/pat/ft_results_e8b.csv`.
 CV-slice scores + submission zips (recipe per EXPERIMENTS.md invariants, no logit_bias) on
 completion; LB is the final judge (CV deltas directional only, per the richargs lesson).
+
+### E8a Result — 2026-07-07 (granite-311m + richargs + full_data, HARVESTED)
+Matched-slice harvest, uncalibrated raw-logit argmax, macro-F1 (sklearn `average="macro"`).
+The 3,500 held-out ids are the untouched 25% that `--full_data` folds OUT of training:
+`split_indices(y, seed=42)` → `va` (14,000); `train_test_split(va, test_size=0.25,
+stratify=y_ids[va], random_state=42)` → `va_eval` (3,500). Champion qwen3 restricted to the
+SAME 3,500 via `analysis/cache/qwen3_val_logits.npz` (positionally aligned to `va`).
+
+- **E8a granite+richargs+full_data (uncal)** : **0.7706**  (`output/pat/ft_results_e8a.csv`; ignore cal 0.7789 per no-calibration policy)
+- **champion-qwen3 on same 3,500 held-out** : **0.7620**  (n matched = 3,500 / 3,500 — all held-out ids present in cache, confirmed positionally AND by `id` string)
+- **Δ (E8a − champion-slice)** : **+0.0086**
+- directional CV-vs-LB (not matched): E8a 0.7706 vs LB SOTA 0.77427 = **−0.0037** (own held-out CV vs the LB's hidden test — informational only)
+- figure: `experiments/combine/figures/e8a_vs_champion_slice.png`
+
+**Verdict:** granite+richargs+full_data BEATS champion-qwen3 on the matched 3,500 slice by
++0.0086 macro-F1 — and granite is the FAST backbone (5:10 vs qwen3's 9:06, huge budget
+headroom), so this is parity-plus at far lower inference cost: a clear win. E8b (qwen3 arm,
+same recipe) still training (~2-3h remaining) and will be harvested separately.
