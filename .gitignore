@@ -24,7 +24,14 @@ ENV/
 
 # Competition data (large, provided by DACON — not committed)
 data/
+submission/data
 *.zip
+
+# Cached eval logits/preds (regenerable)
+analysis/cache/
+
+# Claude Code local state
+.claude/
 
 # Model weights / training artifacts (large binaries)
 *.pt
@@ -59,3 +66,5 @@ outputs/
 .vscode/
 .idea/
 .DS_Store
+
+presentation/notion*/
