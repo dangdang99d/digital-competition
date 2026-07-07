@@ -21,12 +21,12 @@ import numpy as np
 import torch
 from loguru import logger
 
-from src.data import serialize
+from src.data import SERIALIZE_VARIANTS, serialize
 
 
-def collect_used_ids(tok, data_path, max_len):
+def collect_used_ids(tok, data_path, max_len, var_kw=None):
     samples = [json.loads(l) for l in open(data_path, encoding="utf-8")]
-    texts = [serialize(s) for s in samples]
+    texts = [serialize(s, **(var_kw or {})) for s in samples]
     used = set()
     for i in range(0, len(texts), 512):
         for ids in tok(texts[i : i + 512], truncation=True, max_length=max_len).input_ids:
@@ -43,6 +43,9 @@ def main():
                     help="also keep vocab ids [0, margin) as a frequency-ordered safety net")
     ap.add_argument("--max_len", type=int, default=1024,
                     help="tokenization cap when collecting used ids (use >= training max_len)")
+    ap.add_argument("--serialize", default="v1", choices=sorted(SERIALIZE_VARIANTS),
+                    help="serialization variant the model was trained on — MUST match so "
+                         "variant-specific tokens are kept, not pruned to <unk>")
     args = ap.parse_args()
 
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -53,11 +56,12 @@ def main():
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model_dir, local_files_only=True, torch_dtype=torch.float32)
 
-    used = collect_used_ids(tok, args.train_jsonl, args.max_len)
+    used = collect_used_ids(tok, args.train_jsonl, args.max_len,
+                            SERIALIZE_VARIANTS[args.serialize])
     special = set(tok.all_special_ids)
     keep = sorted(used | special | set(range(args.margin)))
-    logger.info(f"used={len(used):,}  keep(with margin {args.margin})={len(keep):,} "
-                f"of {model.config.vocab_size:,}")
+    logger.info(f"serialize={args.serialize}  used={len(used):,}  "
+                f"keep(with margin {args.margin})={len(keep):,} of {model.config.vocab_size:,}")
 
     # remap: old id -> new row; pruned ids -> new position of <unk>
     old_emb = model.get_input_embeddings()
