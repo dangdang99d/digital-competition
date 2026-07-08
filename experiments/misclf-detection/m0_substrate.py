@@ -37,6 +37,7 @@ def main():
     ap.add_argument("--tokenizer", default="Qwen/Qwen3-Embedding-0.6B",
                     help="original HF qwen3 tokenizer")
     ap.add_argument("--remap", default=None, help="remap.npy: full-vocab id -> pruned embed row")
+    ap.add_argument("--variant", default="v1", help="serialize variant the model trained on (e.g. richargs)")
     ap.add_argument("--data_dir", default="./data")
     ap.add_argument("--max_len", type=int, default=512, help="length the model trained at")
     ap.add_argument("--batch_size", type=int, default=48)
@@ -61,7 +62,7 @@ def main():
     H = W.shape[1]
 
     samples, y = load_samples(args.data_dir)          # load order == train.jsonl order
-    texts = build_texts(samples)                       # v1, full history (champion recipe)
+    texts = build_texts(samples, variant=args.variant)  # match the model's training serialization
     N, C = len(texts), model.config.num_labels
 
     labels = np.array([CLASS_TO_ID[a] for a in y], dtype=np.int64)

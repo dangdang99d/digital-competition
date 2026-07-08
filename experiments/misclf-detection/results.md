@@ -154,6 +154,31 @@ CUDA_VISIBLE_DEVICES=2 PYTHONPATH=. python experiments/misclf-detection/run_eval
 ```
 (qwen3 champion weights extracted from `submit_0703_qwen3_pruned.zip`; HF tokenizer + remap.)
 
+## qwen3_ls (E8b+LS) — same pipeline, clean held-out comparison
+
+Applied M1/M2/M3/M5 to **qwen3_ls** (E8b+LS, LB SOTA 0.77921; richargs · full_data · LS).
+Because it's `--full_data`, evaluated on the **clean 3.5k held-out** (the 25% of the seed-42 val
+it never trained on); plain qwen3 scored on the **same 3,500 samples** for apples-to-apples.
+Substrate: `misclf_substrate_qwen3ls.npz` (full-vocab ckpt, richargs, recon 0.0029). Figures:
+[overall](figures/m_auroc_overall_qwen3ls.png) · [robustness](figures/m_robustness_slices_qwen3ls.png).
+
+| Detector (overall AUROC) | qwen3 (CE) | qwen3_ls (LS) | Δ (LS−CE) |
+|---|---|---|---|
+| MSP | 0.8569 | 0.8514 | −0.0055 |
+| DOCTOR | 0.8567 | 0.8515 | −0.0052 |
+| neg-entropy | 0.8551 | 0.8481 | −0.0070 |
+| margin | 0.8529 | 0.8497 | −0.0032 |
+| M5 sum_norm_margin | 0.8523 | 0.8516 | −0.0007 |
+| ConfidNet | 0.8415 | 0.8410 | −0.0005 |
+| val acc (3.5k slice) | 0.7577 | 0.7651 | +0.0074 |
+
+**Findings:** (1) same ~0.85 ceiling, DOCTOR/MSP still win — model-independent. (2) LS **lowers
+error-detectability by ~0.003–0.007** on every softmax detector (LS flattens confidence → less
+separable); small and near the 3.5k-slice noise floor, and **confounded** (qwen3_ls also differs in
+serialization + full_data — a clean LS ablation would be qwen3_ls vs E8b-no-LS). (3) M5
+sum_norm_margin ties #1 on qwen3_ls (0.8516) but within noise of MSP, not a real gain. (4)
+Mahalanobis less broken on LS (0.57 vs 0.32) but still poor.
+
 ## M0 — Substrate extraction
 - **Model:** original **qwen3** (champion 0.7682, plain CE), frozen. Logits + preds are ALREADY
   cached (`analysis/cache/qwen3_val_logits.npz`; `val_logits.npz` has labels + `va` generator) →

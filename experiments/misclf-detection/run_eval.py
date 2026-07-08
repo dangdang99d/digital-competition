@@ -58,22 +58,22 @@ def risk_coverage(conf, correct):
     return np.arange(1, n + 1) / n, 1 - np.cumsum(cs) / np.arange(1, n + 1)
 
 
-def load_data():
-    """Full substrate if M0 has run; otherwise a logits-only fallback from the cached
-    original-champion val logits (clean plain-CE held-out val) — enough for M1/M5."""
+def load_data(sub):
+    """Full substrate if present; otherwise a logits-only fallback from the cached
+    original-champion val logits — enough for M1/M5."""
     from src.data import CLASS_TO_ID, load_samples, split_indices
-    if os.path.exists(SUB):
-        S = np.load(SUB, allow_pickle=True)
+    if os.path.exists(sub):
+        S = np.load(sub, allow_pickle=True)
         lg, ft, lb = S["logits"], S["feats"].astype(np.float32), S["labels"]
         tr, va = S["tr"], S["va"]
-        return dict(zval=lg[va], yval=lb[va], gval=S["gen"][va], sval=S["step"][va],
-                    ftr=ft[tr], ytr=lb[tr], ztr=lg[tr], fva=ft[va], src="substrate (M0)")
+        return dict(zval=lg[va], yval=lb[va], gval=S["gen"][va], sval=S["step"][va], va=va,
+                    ftr=ft[tr], ytr=lb[tr], ztr=lg[tr], fva=ft[va], src=f"substrate {sub}")
     import re
     _ID = re.compile(r"sess_([a-z]+)_.*-step_(\d+)")
     samples, y = load_samples("./data")
     _, va = split_indices(y, seed=42)
     zval = np.load("analysis/cache/qwen3_val_logits.npz")["logits"]
-    return dict(zval=zval,
+    return dict(zval=zval, va=va,
                 yval=np.array([CLASS_TO_ID[y[i]] for i in va]),
                 gval=np.array([_ID.match(samples[i]["id"]).group(1) for i in va]),
                 sval=np.array([int(_ID.match(samples[i]["id"]).group(2)) for i in va]),
@@ -81,9 +81,32 @@ def load_data():
 
 
 def main():
-    D = load_data()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--sub", default=SUB)
+    ap.add_argument("--heldout", action="store_true",
+                    help="restrict val to the full_data clean 25%% held-out (never seen by a full_data model)")
+    ap.add_argument("--tag", default="")
+    args = ap.parse_args()
+
+    D = load_data(args.sub)
     logger.info(f"data source: {D['src']}")
     zval, yval, gval, sval = D["zval"], D["yval"], D["gval"], D["sval"]
+
+    hmask = None
+    if args.heldout:  # the 25% of the seed-42 val that a --full_data model never trained on
+        from sklearn.model_selection import train_test_split
+        from src.data import CLASS_TO_ID, load_samples
+        _, y = load_samples("./data")
+        yid = np.array([CLASS_TO_ID[a] for a in y])
+        va = D["va"]
+        _, va_eval = train_test_split(va, test_size=0.25, stratify=yid[va], random_state=42)
+        hmask = np.isin(va, va_eval)
+        zval, yval, gval, sval = zval[hmask], yval[hmask], gval[hmask], sval[hmask]
+        if D["fva"] is not None:
+            D["fva"] = D["fva"][hmask]
+        logger.info(f"heldout: {int(hmask.sum())} clean samples of {len(hmask)} val")
+
     pval = softmax(zval)
     pred = zval.argmax(1)
     correct = (pred == yval).astype(int)
@@ -109,6 +132,8 @@ def main():
     have_hist0 = os.path.exists(HIST0)
     if have_hist0:
         zh = np.load(HIST0)["logits"]
+        if hmask is not None:
+            zh = zh[hmask]
         assert zh.shape[0] == len(zval), "hist0 cache not aligned to val"
         predh = zh.argmax(1)
         mh = np.sort(zh, 1)
@@ -198,14 +223,17 @@ def main():
     print(f"\nbaseline (M1:margin) overall AUROC = "
           f"{next(r['overall'] for r in rows if r['detector']=='M1:margin'):.4f}")
 
+    suff = ("_" + args.tag) if args.tag else ""
+    outjson = OUTJSON.replace(".json", f"{suff}.json")
     os.makedirs(FIGDIR, exist_ok=True)
-    json.dump({"val_acc": float(correct.mean()), "n_val": int(len(zval)), "rows": rows},
-              open(OUTJSON, "w"), indent=2)
-    plot(rows, scores, correct, slices)
-    logger.success(f"results -> {OUTJSON}")
+    json.dump({"val_acc": float(correct.mean()), "n_val": int(len(zval)),
+               "heldout": bool(args.heldout), "sub": args.sub, "rows": rows},
+              open(outjson, "w"), indent=2)
+    plot(rows, scores, correct, slices, suff)
+    logger.success(f"results -> {outjson}")
 
 
-def plot(rows, scores, correct, slices):
+def plot(rows, scores, correct, slices, suff=""):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -225,7 +253,7 @@ def plot(rows, scores, correct, slices):
     ax.set_xlabel("AUROC (correct vs wrong), 14k val"); ax.legend(loc="lower right", fontsize=8)
     ax.set_title("Misclassification detectors — overall ranking (frozen qwen3)", fontsize=11)
     ax.grid(axis="x", color=GREY, alpha=0.3); [s.set_visible(False) for s in ax.spines.values()]
-    fig.tight_layout(); fig.savefig(f"{FIGDIR}/m_auroc_overall.png", dpi=130, facecolor=BG)
+    fig.tight_layout(); fig.savefig(f"{FIGDIR}/m_auroc_overall{suff}.png", dpi=130, facecolor=BG)
 
     # fig 2: per-slice robustness for top-6 detectors
     top = rows[:6]
@@ -240,7 +268,7 @@ def plot(rows, scores, correct, slices):
     ax.set_title("Robustness by slice (top-6) — must hold on au + first-step (E6 lesson)", fontsize=10)
     ax.legend(fontsize=7, ncol=2); ax.grid(axis="y", color=GREY, alpha=0.3)
     [s.set_visible(False) for s in ax.spines.values()]
-    fig.tight_layout(); fig.savefig(f"{FIGDIR}/m_robustness_slices.png", dpi=130, facecolor=BG)
+    fig.tight_layout(); fig.savefig(f"{FIGDIR}/m_robustness_slices{suff}.png", dpi=130, facecolor=BG)
 
     # fig 3: risk-coverage curves, top-5
     fig, ax = plt.subplots(figsize=(8, 5), facecolor=BG); ax.set_facecolor(BG)
@@ -251,7 +279,7 @@ def plot(rows, scores, correct, slices):
     ax.set_title("Risk–coverage (lower = better), frozen qwen3", fontsize=11)
     ax.legend(fontsize=8); ax.grid(color=GREY, alpha=0.3)
     [s.set_visible(False) for s in ax.spines.values()]
-    fig.tight_layout(); fig.savefig(f"{FIGDIR}/m_risk_coverage.png", dpi=130, facecolor=BG)
+    fig.tight_layout(); fig.savefig(f"{FIGDIR}/m_risk_coverage{suff}.png", dpi=130, facecolor=BG)
     logger.info(f"figures -> {FIGDIR}/m_*.png")
 
 
