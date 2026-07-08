@@ -123,19 +123,36 @@ flowchart LR
 ---
 
 ## Summary
-Legend: 🟢 ready, not run · ✅ win · ❌ no-go.
+Legend: ✅ win · ❌ no-go · ⚠️ broken impl · 🟢 not run. Base model = original qwen3 (val acc
+0.7654, 3285/14000 wrong). Ran 2026-07-08. AUROC = correct-vs-wrong on 14k val; AURC lower=better.
 
-| Exp | Detector | Tap | Cost | Needs | Status | AUROC / AURC | Verdict |
-|---|---|:--:|:--:|---|:--:|---|---|
-| M0 | Substrate extraction (qwen3, base) | — | ~15 min | 1 fwd pass (feats only) | 🟢 | — | logits already cached; only `h` is new |
-| M1 | Output scores (MSP/entropy/margin/max-logit/energy/DOCTOR) | ① | free | cached logits | 🟢 | — | baseline battery; reproduce margin ≈ 0.83 |
-| M2 | Distance/density (TrustScore/Mahalanobis/kNN) | ② | cheap | M0 feats | 🟢 | — | — |
-| M3 | ConfidNet (trained TCP head) | ② | cheap | M0 feats + head | 🟢 | — | ref valeoai/ConfidNet |
-| M4 | MC-dropout / TTA variance | ③ | N× infer | dropout fwd | 🟢 | — | optional |
-| M5 | Cross-model disagreement (qwen3 vs hist0 / granite) | ①×2 | free | 2 cached logit sets | 🟢 | — | most likely to beat 0.83 (decorrelated errors) |
+| Exp | Detector (best variant) | Tap | Cost | Status | AUROC ↑ / AURC ↓ | Verdict |
+|---|---|:--:|:--:|:--:|---|---|
+| M0 | Substrate extraction (qwen3 base) | — | 1 fwd pass | ✅ | parity Δ0.031 · recon 0.011 | done — `misclf_substrate_qwen3.npz` |
+| M1 | **DOCTOR / MSP / neg-entropy** | ① | free | ✅ | **0.8538 / 0.069** | ✅ **WINNER** — free, robust au(0.92)/first(0.79) |
+| M1 | margin (prior baseline) | ① | free | ✅ | 0.8474 / 0.070 | reproduced the ~0.83 incumbent |
+| M2 | knn_agree · trustscore · **mahalanobis** | ② | cheap | ⚠️ | 0.817 · 0.782 · **0.319** | ❌ below M1; **mahalanobis anti-correlated = impl broken** |
+| M3 | ConfidNet (trained TCP head) | ② | cheap | ❌ | 0.8316 / 0.075 | ❌ **underperforms free MSP** — not worth training |
+| M4 | MC-dropout / TTA variance | ③ | N× infer | 🟢 | — | deferred (later) |
+| M5 | cross-model vs hist0 (sum_norm_margin · agree) | ①×2 | free | ❌ | 0.847 · 0.619 | ❌ **no gain** over single-model (hist0 too weak) |
 
-Recommended order: **M1 + M5 first** (free, straight off cached logits — no M0 needed; bank the
-ceiling + cross-model signal), then the **M0 feature pass → M2/M3**.
+**Headline:** best detector = plain max-softmax family (**DOCTOR/MSP/entropy ≈ 0.854 AUROC**),
+free and robust across slices — confirms the project's ~0.83–0.85 correctness-detection ceiling.
+Trained (ConfidNet), cross-model (hist0), and distance (M2) detectors **do not beat it**.
+Figures: [overall](figures/m_auroc_overall.png) · [robustness](figures/m_robustness_slices.png) ·
+[risk-coverage](figures/m_risk_coverage.png). Full numbers: `m_results.json`.
+
+**Open follow-ups:** (a) M2 Mahalanobis broken (AUROC<0.5 → raw-feature conditioning / sign) — fix
+or drop. (b) M5 used hist0 (weak bge); retry with **granite** as the 2nd model. (c) M4 not run.
+
+### Exact commands
+```
+CUDA_VISIBLE_DEVICES=2 PYTHONPATH=. python experiments/misclf-detection/m0_substrate.py \
+  --ckpt output/pat/qwen3_champion_pruned --tokenizer Qwen/Qwen3-Embedding-0.6B \
+  --remap output/pat/qwen3_champion_pruned/remap.npy --out analysis/cache/misclf_substrate_qwen3.npz
+CUDA_VISIBLE_DEVICES=2 PYTHONPATH=. python experiments/misclf-detection/run_eval.py
+```
+(qwen3 champion weights extracted from `submit_0703_qwen3_pruned.zip`; HF tokenizer + remap.)
 
 ## M0 — Substrate extraction
 - **Model:** original **qwen3** (champion 0.7682, plain CE), frozen. Logits + preds are ALREADY
