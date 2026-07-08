@@ -33,5 +33,14 @@ historical CV.
 |---|-----------|----------|--------|:-----:|-------------------|-----:|-----------:|----------:|--------|
 | E8a | granite + richargs + full_data | granite-311m | richargs · full-data | **no** | **0.7706** (Δ +0.0086 vs champ-qwen3 on 3.5k slice) | — | ~5 min class | — | 🔨 **ZIP TO BUILD** → submit |
 | E8b | qwen3 + richargs + full_data | qwen3-0.6b | richargs · full-data | **no** | training (~2h) | — | ~9 min (watch budget) | — | 🏃 training |
+| E16z | qwen3 **depth-14** (half) + recovery | qwen3-0.6b | richargs · full-data · depth-prune 28→14 | **no** | **0.7638** | ~1.5GB ckpt | **~½ of qwen3 (fast)** | — | 📦 **TRAINED, READY TO PACKAGE** — `output/pat/ft_Qwen__Qwen3-Embedding-0.6B_e16_qwen3_depth14_recover/checkpoint-8312`. **Standard `from_pretrained`** (config.num_hidden_layers=14) — simple zip. Value: fast/small fallback for the 10% speed score |
+| E4z | qwen3 **FFN-factored r512** + recovery | qwen3-0.6b | richargs · full-data · FFN whitened-SVD r512 | **no** | **0.7688** | ~2.0GB ckpt | ~qwen3 | — | 📦 **TRAINED, READY TO PACKAGE** — `output/pat/ft_Qwen__Qwen3-Embedding-0.6B_e4_ffn_r512_recover_e8b/checkpoint-4157`. **smaller AND better** than uncompressed qwen3 (0.7643). ⚠️ needs `load_factored_model` hook wired into `script.py` (not standard from_pretrained) — smoke-test with user |
 
-Statuses: 🔨 build zip · ⬆ ready to upload · ✅ submitted · 🏃 still training
+Statuses: 🔨 build zip · ⬆ ready to upload · ✅ submitted · 🏃 still training · 📦 trained, ready to package
+
+**Ready-to-package note (2026-07-08, overnight):** both compressed-qwen3 checkpoints verified present on
+disk with intact weights + known val. These are the compression branch's payoff — NOT blind retrains.
+Packaging deferred to daylight so the user can smoke-test (our local test.jsonl has only 5 records, so
+prior qwen3_ls zip smoke-test was inconclusive). Best submission remains **granite E8a+LS 0.7803**
+(`submit_0707_granite_ls.zip`, upload-ready) — compressed-qwen3 zips are distinct fast/small entries,
+lower total-score priority since accuracy dominates and granite already meets the speed budget.
