@@ -1,18 +1,16 @@
 # Branch: reasoning — reasoning-FT backbone + classification head
-Git branch: `research/reasoning` · Experiments: E5 — ✋ ON HOLD (user decision 2026-07-07): needs further analysis/planning before any run; do not dispatch
-Baseline: qwen3 v1@512 plain full-FT = 0.7682 uncal (the identical-recipe control).
+Git branch: `research/reasoning` · Baseline: **qwen3 v1@512 plain full-FT = 0.7682 uncal** (identical-recipe control).
 
-## Summary (at-a-glance)
-Legend: ✋ on hold. Baseline = qwen3 v1@512 plain full-FT 0.7682 (uncal).
+## Summary
+Legend: ✋ on hold.
 
 | Exp | Experiment | Status | Verdict |
 |---|---|:--:|---|
-| E5 | reasoning-FT backbone + classification head | ✋ | **ON HOLD** (user decision 2026-07-07) — needs further analysis/planning before any run; not dispatched. Skeptical prior: weak-semantic labels cap reasoning ~0.28, generative inference blows the budget |
+| E5 | reasoning-FT backbone + classification head | ✋ | ON HOLD (user decision) — not dispatched |
 
-## Prior findings
-- Labels weakly semantic: zero/few-shot reasoning caps ~0.28; budget kills generative
-  inference (~300× over 50 samples/s) — hence train-time-only reasoning, head-only inference.
-- Every aux objective so far hurt (supcon −0.007) or was null; skeptical prior.
-
-## Results
-(append here)
+## E5 — reasoning-FT → head
+- **What:** train with rationales, attach a classification head, then do head-only fast inference (1 forward pass, budget-safe).
+- **Baseline:** qwen3 full-FT = 0.7682.
+- **Change:** rationale-augmented training + linear classification head.
+- **Result:** — **not run**.
+- **Verdict:** ✋ **ON HOLD** (user decision 2026-07-07) — needs analysis/planning first. Skeptical prior: labels are weakly semantic (zero/few-shot reasoning caps ~0.28), generative inference blows the budget, and every aux objective so far hurt or was null (supcon −0.007).

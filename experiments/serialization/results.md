@@ -1,17 +1,20 @@
 # Branch: serialization — input-format gains on the best backbone
-Git branch: `research/serialization` · Experiments: E2 (richargs × qwen3) — GATED on E8b: run only as attribution diagnostic if E8b disappoints (E8b subsumes the serialization axis)
-Baseline: qwen3 v1@512 = 0.7682 uncal.
+Git branch: `research/serialization` · Baseline: **qwen3 v1@512 = 0.7682 uncal**. All scores uncalibrated macro-F1.
 
-## Summary (at-a-glance)
-Legend: ⛔ gated, not run. Baseline = qwen3 v1@512 0.7682 (uncal).
+## Summary
+Legend: ⛔ gated, not run.
 
 | Exp | Experiment | Status | Result | Verdict |
 |---|---|:--:|---|---|
-| E2 | richargs × qwen3 (single-axis ablation) | ⛔ | — | Gated on E8b — run ONLY as attribution diagnostic if E8b disappointed. E8b landed fine (0.7643) and the richargs axis is already in the champion recipe → **correctly skipped** |
+| E2 | richargs × qwen3 (single-axis ablation) | ⛔ | — | correctly skipped (gated on E8b) |
 
-## Prior findings
-- On bge-m3: richmeta +0.0117 uncal (0.7498→0.7615); richargs = exact null vs richmeta (+0.00002, trainer_state-verified); all info-REMOVAL variants regress (nometa −0.022, leanact −0.028, combo −0.040).
-- Hypothesis: serialization and backbone gains are ~orthogonal → qwen3@richmeta ≈ 0.78.
+## E2 — richargs × qwen3
+- **What:** isolate the richargs serialization gain on the qwen3 backbone (attribution diagnostic).
+- **Baseline:** qwen3 v1@512 = 0.7682.
+- **Change:** serialize `richargs` (rich meta header + arg-path basenames) instead of v1.
+- **Result:** — **not run**. Gated on E8b, which already carries richargs and landed fine (0.7643), so the isolated ablation wasn't needed.
+- **Verdict:** ⛔ **correctly skipped.**
 
-## Results
-(append here)
+## Notes (prior, bge-m3)
+- richmeta +0.0117 uncal (0.7498→0.7615); richargs ≈ richmeta on CV (+0.00002) but **> richmeta on LB** (the hidden test rewards arg-path stripping).
+- All info-REMOVAL variants regress (nometa −0.022, leanact −0.028). Hypothesis: serialization and backbone gains are ~orthogonal.
