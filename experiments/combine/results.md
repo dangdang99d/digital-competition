@@ -2,6 +2,16 @@
 Git branch: `research/combine` · Experiments: E8 (performance-max combo), E12 (weight averaging — the final stacking stage: E8-winning recipe × 3 seeds → soup → zip)
 Goal: beat LB SOTA 0.77427 (submit_trainall_single, granite+alldata+filenames-only).
 
+## Summary (at-a-glance)
+Legend: 🏆 best · ✅ done · ⚠️ inconclusive. Matched CV = the untouched 3,500 held-out slice; champion-qwen3 on that slice = 0.7620 (uncal).
+
+| Exp | Arm / recipe | Status | Result (uncal F1) | Δ | Verdict |
+|---|---|:--:|---|---|---|
+| E8a | granite-311m + richargs + full_data | ✅ | 0.7706 | +0.0086 vs champion-slice | ✅ WIN — beats champion & is the **fast** backbone (5:10) |
+| E8b | qwen3-0.6B + richargs + full_data | ✅ | 0.7643 | +0.0023 vs champion-slice | ✅ weaker + near 9:06 budget cliff |
+| E8a+LS | granite + richargs + full_data + **LS ε=0.1** | 🏆 | **0.7803** | +0.0097 vs E8a; **+0.0060 above LB SOTA on CV** | 🏆 **BEST of session — top submission** (zip `submit_0707_granite_ls.zip` built + verified) |
+| E12 | model soup — 3 granite+LS seeds → average | ⚠️ | seeds 0.7803 / 0.7758 / 0.7628, **each on its OWN slice** | n/a | ⚠️ **BOTCHED** — `--seed` also reshuffles the split, so seeds aren't comparable and can't be soup-averaged cleanly. **Re-run with split held fixed** before any read |
+
 ## What the submission history proves (Notion export, 2026-07-07)
 LB-verified gains, roughly independent axes:
 - **Backbone:** qwen3-0.6B > bge-m3 > granite at equal recipe (+0.025 LB qwen3 vs bge @0703).

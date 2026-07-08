@@ -2,6 +2,14 @@
 Git branch: `research/deferral` · Experiments: E6 (two-model per-class-τ fallback robustness). E7 session-lookup REMOVED — competition-rules risk, do not attempt (user decision 2026-07-07)
 Baseline: single-model champion qwen3 = 0.7682 uncal.
 
+## Summary (at-a-glance)
+Legend: ❌ failed · 🚫 prohibited. Baseline = single-model champion qwen3 0.7682 (uncal).
+
+| Exp | Experiment | Status | Result | Verdict |
+|---|---|:--:|---|---|
+| E6 | two-model per-class-τ fallback (qwen3→hist0) | ❌ | +0.0047 overall BUT held-out **au −0.0033**, **first-step −0.0016** (beats base on only 2/4 robustness slices) | ❌ **FAILS robustness — DROP** (gain is a majority-regime artifact; also doubles inference) |
+| E7 | session-lookup deferral | 🚫 | — | 🚫 **DO NOT ATTEMPT** — competition-rules risk (user decision 2026-07-07) |
+
 ## Prior findings
 - Margin (top1−top2, uncal) AUROC→correctness: hist0 0.832 / qwen3 0.848; wrong
   predictions pile at gap<1. Flip-to-top2 dead; pair-flip dead; higher-gap arbitration +0.001.

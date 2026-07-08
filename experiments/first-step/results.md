@@ -2,6 +2,16 @@
 Git branch: `research/first-step` · Experiments: E1 (ceiling A/B: --zero_history vs --strip_history)
 Baseline: hist0 generalist on the 1,807 first-step val slice = 0.555 macro-F1 (qwen3: 0.573).
 
+## Summary (at-a-glance)
+Legend: ❌ specializing hurts. Both arms eval on the SAME 1,807 zero-history slice; generalist reference = 0.555 (uncal).
+
+| Exp | Arm | Status | Result (uncal F1) | Δ vs generalist 0.555 | Verdict |
+|---|---|:--:|---|---|---|
+| E1 | `--zero_history` (7k real first-steps) | ✅ | 0.4283 | −0.127 | ❌ specializing HURTS |
+| E1 | `--strip_history` (all 56k, history stripped) | ✅ | 0.4407 | −0.114 | ❌ specializing HURTS |
+
+**Verdict — first-step error is INTRINSIC.** Both specialists land ~0.11 below the generalist on the identical slice → keep the single generalist encoder; **do NOT build a first-step / has-history branch.**
+
 ## Prior findings
 - step==1 ⟺ len(history)==0 exactly (9,000/70,000; 7,193 train / 1,807 val).
 - First-step err ~2× mid-session (36.7% vs ~18%). Both models prior-collapse onto

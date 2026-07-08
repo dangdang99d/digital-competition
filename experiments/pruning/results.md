@@ -6,6 +6,17 @@ own result) · LTP now, ToMe if LTP fails · Sheared-LLaMA skipped (data scale) 
 2:4 sparsity skipped (unknown eval GPU, no zip benefit, runtime risk) · E3 = 3-scorer probe (whitened-SVD vs Wanda-sp vs FLAP) · CFSP dropped (complexity) · EoRA = recovery tier in E4 ladder + THE recovery for E15d translator
 Baseline: Qwen3-0.6B full-FT v1@512 = 0.7682 uncal (E3: same-subset rank-1.0 row).
 
+## Summary (at-a-glance)
+Legend: ✅ win · ❌ no-go/closed · ⚠️ inconclusive · 🟢 ready, not run. Δ vs E8b champion 0.7643 (uncal) unless noted.
+
+| Exp | Experiment | Status | Result (uncal F1) | Δ vs baseline | Verdict |
+|---|---|:--:|---|---|---|
+| E3 | FFN whitened-SVD probe (training-free) | ✅ | −0.26pt @ r=512, +0.42pt @ r=768; cliff < r≈384 | vs rank-1.0 0.7734 | ✅ **GO** — FFN is the prize (44% of params), greenlit E4 |
+| E4 | FFN SVD prune r=512 + recovery-FT | ✅ | **0.7688** | **+0.0045** | ✅ **WIN** — compression NET-POSITIVE, ~15% params cut |
+| E16 | qwen3 depth-prune 28→14 + recovery | ✅ | **0.7638** | **−0.0005** | ✅ **WIN** — ~free, HALF depth → ~2× faster |
+| E16b | granite depth-prune the best model (0.7803) | ❌ | 0.1602 then 0.2365 (2 tries) | ≪ 0.7803 (cratered) | ❌ **NO-GO** — granite/ModernBERT won't recover; backbone-dependent |
+| E18 | LTP token pruning (~2× throughput, <1% drop) | 🟢 | — | — | READY (user-approved) — **not yet run** |
+
 ## Prior findings (from main-session analysis, 2026-07-07)
 - KV whitened-SVD probe (training-free, 3k val): 95.5% energy @ 25% rank; −0.005 @ r=512, −0.010 @ r=256. Method works where naive width50 slice failed.
 - BUT K+V = only 9.9% of params. Split: FFN 44.4%, embeddings 26.1%, attn 29.6% (Q/O 19.7%). FFN is the prize; embeddings → vocab-prune (proven recipe).
@@ -114,4 +125,29 @@ Launcher: `experiments/pruning/e16_launch.sh`; log: `sbatch/logs/e16-depth14-rec
 **Harvest plan:** `ft_results_e16.csv` uncal `val_macro_f1` vs **E8b 0.7643**. 14-layer =
 half the depth → ~2× faster inference. Read-out: ≈0.7643 → depth-prune WIN (big speed/budget
 gain at ~same acc); if it craters (≫1pt below) → LaCo layer-merge fallback or fewer dropped
-layers. (Run in progress at time of writing; NFS-slow warmup.)
+layers.
+
+**HARVESTED 2026-07-08 · WIN.** `ft_results_e16.csv` uncal `val_macro_f1` = **0.7638** vs
+E8b 0.7643 = **−0.0005**. Depth-halving qwen3 (28→14, BI-selected) is essentially FREE —
+half the layers at ~same accuracy, ~2× faster inference. Checkpoint on disk:
+`output/pat/ft_Qwen__Qwen3-Embedding-0.6B_e16_qwen3_depth14_recover/checkpoint-8312` (1.5 GB,
+loads with standard `from_pretrained`, `config.num_hidden_layers=14`). Ready to package as a
+fast/small qwen3 submission (see `submissions/SUBMISSIONS.md` → **E16z**). Stacks with E4
+FFN-factor for a maximally-compressed qwen3.
+
+### 2026-07-08 · E16b — depth-prune the BEST model (granite E8a+LS 0.7803) · **NO-GO**
+Tried to make the champion fast+small the same way E16 did for qwen3: depth-prune granite
+E8a+LS (0.7803) + recovery-FT. Granite-311m = ModernBERT, 22 encoder layers.
+
+| attempt | kept layers | recovery recipe | val_macro_f1 | vs 0.7803 |
+|---|---|---|---|---|
+| e16b   | 11 (evenly-spaced) | lr 5e-6, 2ep | **0.1602** | cratered |
+| e16b_v2 | 14 (evenly-spaced) | lr 2e-5, 3ep | **0.2365** | cratered |
+
+**Read-out → NO-GO.** Both attempts collapse to near-random (14-class floor ≈ 0.07). Unlike
+qwen3's deep decoder-style stack (E16: prunes ~free), granite/ModernBERT's 22 encoder layers are
+each **load-bearing** — halving them destroys the model and recovery-FT cannot rebuild it. **This
+is backbone-dependent, and the lesson is load-bearing:** measure per-backbone redundancy (BI)
+before committing to depth-prune. Moot for shipping anyway — the champion granite is already fast
+(5:10), so it needs no depth compression. Sources: `output/pat/ft_results_e16b.csv`,
+`ft_results_e16b_v2.csv`.

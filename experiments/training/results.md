@@ -2,6 +2,17 @@
 Git branch: `research/training` · Experiments: E9 (losses: focal/LS/wCE/logit-adjusted), E13 (SAM — CLOSED by analysis), E14 (grouped-split protocol test, LOW prio), E10 (ensemble-distillation — DEFERRED to pre-deadline, correlated-error bound), E11 (TAPT granite-MLM, READY — user-approved 2026-07-07)
 Baseline: champion qwen3 v1@512 = 0.7682 uncal (E9 screening arms baseline = same-backbone plain-CE control).
 
+## Summary (at-a-glance)
+Legend: ✅ win · ❌ closed · 🟡 low-prio, not run · 🕐 deferred. Δ vs same-backbone plain-CE control (granite v1@512 = 0.7458).
+
+| Exp | Experiment | Status | Result (uncal F1) | Δ vs baseline | Verdict |
+|---|---|:--:|---|---|---|
+| E9 | loss screen: CE / focal / label-smoothing | ✅ | LS 0.7565 · focal 0.7403 (vs CE 0.7458) | LS **+0.0107** · focal −0.0055 | ✅ **LS PROMOTED** (transfers to E8 → 0.7803); focal closed |
+| E11 | TAPT — granite MLM on 70k serialized texts | ✅ | **0.7592** | **+0.0134** | ✅ **WIN** — cheap domain-adaptive gain |
+| E13 | SAM fine-tune | ❌ | — | — | ❌ CLOSED by analysis (no run) — near-zero run variance, nothing to harvest |
+| E14 | session-grouped split (leak-free CV) | 🟡 | — | — | LOW prio — protocol test, **not run** |
+| E10 | ensemble → single distillation | 🕐 | — | — | DEFERRED to pre-deadline (correlated-error bound, E6 lesson) |
+
 ## Why these (papers/ + local evidence)
 - **E9 losses:** metric is macro-F1 but training is plain CE on imbalanced classes
   (edit_file 15.8% vs web_search 1.8%). FocalLoss (ICCV'17) + LabelSmoothing (NeurIPS'19)

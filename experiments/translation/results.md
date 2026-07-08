@@ -5,6 +5,18 @@ inconsistency + truncation — see teammate_work/miseo_koen analysis, 2026-07-07
 hypothesis itself — English text enables token surgery & English-specialist models —
 is untested. This branch tests it properly.
 
+## Summary (at-a-glance)
+Legend: ❌ no-go · ⛔ gated, not run. Budget = 10 min for 30k rows (must also fit the classifier).
+
+| Exp | Experiment | Status | Result | Verdict |
+|---|---|:--:|---|---|
+| E15a | NLLB-600M qualification (throughput/quality/preservation) | ❌ | **93 min / 30k** (~31 min even @3× speedup) ≫ 10-min budget | ❌ **NO-GO (throughput)** — translation-at-inference can't fit; kills the line |
+| E15b | code-span protection (mask→translate→restore) | ⛔ | — | Gated on E15a → not run |
+| E15c | EN-data classifiers vs KO baselines (**THE payoff test**) | ⛔ | — | Gated on E15a/b — **the core hypothesis (does EN input help?) was never tested**, blocked by E15a's throughput NO-GO |
+| E15d | translator compression + 30k budget fit | ⛔ | — | Gated on E15c → not run |
+
+> ⚠️ **Open, not disproven:** E15a killed translation *at inference* on throughput, but the payoff question (E15c: do EN-data / EN-specialist classifiers beat KO baselines?) is independent of inference cost — you could translate the TRAIN set offline and only ship a KO/EN classifier. That path was never run.
+
 ## E15a · NLLB-600M qualification (GO/NO-GO — no tournament)
 **Simplified per user decision 2026-07-07:** MT quality scales with size (unlike our
 classifier task), so skip the multi-model bake-off — take the largest deployable,
