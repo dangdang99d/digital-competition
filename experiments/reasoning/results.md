@@ -4,11 +4,12 @@ Git branch: `research/reasoning` · Baseline: **qwen3 v1@512 plain full-FT = 0.7
 ## Summary
 Legend: ✋ on hold.
 
-| Exp | Experiment | Status | Verdict |
-|---|---|:--:|---|
-| E5 | reasoning-FT backbone + classification head | ✋ | ON HOLD (user decision) — not dispatched |
+| Exp | Experiment | Model | Status | Verdict |
+|---|---|---|:--:|---|
+| E5 | reasoning-FT backbone + classification head | qwen3 | ✋ | ON HOLD (user decision) — not dispatched |
 
 ## E5 — reasoning-FT → head
+- **Model:** qwen3-0.6B.
 - **What:** train with rationales, attach a classification head, then do head-only fast inference (1 forward pass, budget-safe).
 - **Baseline:** qwen3 full-FT = 0.7682.
 - **Change:** rationale-augmented training + linear classification head.

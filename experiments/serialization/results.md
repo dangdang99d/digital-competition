@@ -4,11 +4,12 @@ Git branch: `research/serialization` · Baseline: **qwen3 v1@512 = 0.7682 uncal*
 ## Summary
 Legend: ⛔ gated, not run.
 
-| Exp | Experiment | Status | Result | Verdict |
-|---|---|:--:|---|---|
-| E2 | richargs × qwen3 (single-axis ablation) | ⛔ | — | correctly skipped (gated on E8b) |
+| Exp | Experiment | Model | Status | Result | Verdict |
+|---|---|---|:--:|---|---|
+| E2 | richargs × qwen3 (single-axis ablation) | qwen3 | ⛔ | — | correctly skipped (gated on E8b) |
 
 ## E2 — richargs × qwen3
+- **Model:** qwen3-0.6B. (Prior serialization findings below were measured on bge-m3.)
 - **What:** isolate the richargs serialization gain on the qwen3 backbone (attribution diagnostic).
 - **Baseline:** qwen3 v1@512 = 0.7682.
 - **Change:** serialize `richargs` (rich meta header + arg-path basenames) instead of v1.
