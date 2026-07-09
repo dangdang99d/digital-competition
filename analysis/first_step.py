@@ -69,6 +69,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="hist0", choices=list(MODELS))
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
     cfg = MODELS[args.model]
     samples, y = load_samples("./data")
     _, va = split_indices(y, seed=42)

@@ -43,6 +43,8 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out_dir", default="./output/val_debug")
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     from transformers import AutoModelForSequenceClassification, AutoTokenizer, DataCollatorWithPadding
 

@@ -94,6 +94,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="figures/lora_confusion.png")
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     samples, y = load_samples("./data")

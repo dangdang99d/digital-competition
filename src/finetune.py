@@ -93,6 +93,22 @@ def build_dynamic_dataset(tok, samples_sub, labels, max_len, max_hist, hist_drop
     return DS()
 
 
+def build_ids_dataset(ids_list, labels):
+    """Dataset from PRE-tokenized input_ids (E24 method-A --reduced_ids path). Additive:
+    used only when --reduced_ids is set; the plain build_dataset path is untouched."""
+    class DS(torch.utils.data.Dataset):
+        def __len__(self):
+            return len(labels)
+
+        def __getitem__(self, i):
+            ids = ids_list[i]
+            return {"input_ids": ids,
+                    "attention_mask": [1] * len(ids),
+                    "labels": int(labels[i])}
+
+    return DS()
+
+
 def make_compute_metrics(n_classes):
     def compute_metrics(eval_pred):
         logits, labels = eval_pred
@@ -101,6 +117,43 @@ def make_compute_metrics(n_classes):
                        average="macro", zero_division=0)
         return {"macro_f1": mf1}
     return compute_metrics
+
+
+def make_dynamics_logger(train_ds, collator, tr_idx, labels, out_path, bs=64):
+    """TrainerCallback: after each epoch, dump the model's softmax over the TRAIN set
+    (eval mode, no grad, tr order) → npz(probs=(E,N,C), tr, labels). The source for
+    cartography (conf×variability) / AUM (margin) / forgetting / EL2N. Assumes no
+    hist_dropout (a static train_ds), so the per-epoch predictions are comparable."""
+    from transformers import TrainerCallback
+
+    class DynamicsLogger(TrainerCallback):
+        def __init__(self):
+            self.epoch_probs = []
+
+        def on_epoch_end(self, args, state, control, model=None, **kw):
+            from torch.utils.data import DataLoader
+            was_training = model.training
+            model.eval()
+            probs = np.zeros((len(train_ds), model.config.num_labels), dtype=np.float32)
+            k = 0
+            with torch.no_grad():
+                for batch in DataLoader(train_ds, batch_size=bs, shuffle=False,
+                                        collate_fn=collator):
+                    ins = {kk: v.to(model.device) for kk, v in batch.items() if kk != "labels"}
+                    p = torch.softmax(model(**ins).logits.float(), -1).cpu().numpy()
+                    probs[k:k + len(p)] = p
+                    k += len(p)
+            self.epoch_probs.append(probs)
+            if was_training:
+                model.train()
+
+        def on_train_end(self, args, state, control, **kw):
+            arr = np.stack(self.epoch_probs)  # (E, N, C)
+            np.savez(out_path, probs=arr, tr=np.asarray(tr_idx),
+                     labels=np.asarray(labels))
+            logger.info(f"train dynamics -> {out_path}  {arr.shape}")
+
+    return DynamicsLogger()
 
 
 def _macro_f1(logits, labels, bias):
@@ -444,7 +497,8 @@ def make_aux_trainer(base_cls, rdrop=0.0, supcon=None):
     return _AuxTrainer
 
 
-def classification_loss(logits, labels, mode="ce", focal_gamma=2.0, label_smoothing=0.1):
+def classification_loss(logits, labels, mode="ce", focal_gamma=2.0, label_smoothing=0.1,
+                        class_weight=None, log_prior=None, la_tau=1.0):
     """Head classification loss for the 14-class problem, computed in fp32 from the
     head logits (N, C) + integer labels (N,). This REPLACES the model's internal CE
     (it is NOT an added aux term).
@@ -455,6 +509,13 @@ def classification_loss(logits, labels, mode="ce", focal_gamma=2.0, label_smooth
       mode="focal" multiclass focal loss, mean-reduced:
                    FL = mean[ -(1 - p_t)^gamma * log p_t ].
       mode="ls"    cross-entropy with label smoothing (torch >= 1.10).
+      mode="wce"   class-weighted CE — weighted CE with per-class weight
+                   class_weight (K,) = N / (K * count_k) ('balanced', sklearn); the
+                   most literal macro-F1 surrogate (every class weighted equally).
+      mode="la"    logit-adjusted loss (Menon et al., 2021, ICLR): CE on
+                   logits + la_tau * log_prior, where log_prior (K,) = log(count_k/N).
+                   The consistent surrogate for balanced/macro error. NOT calibration:
+                   priors come from the TRAIN split, inference stays raw argmax.
     """
     import torch.nn.functional as F
     logits = logits.float()
@@ -467,19 +528,30 @@ def classification_loss(logits, labels, mode="ce", focal_gamma=2.0, label_smooth
         logpt = logp.gather(1, labels.unsqueeze(1)).squeeze(1)   # log p_t
         pt = logpt.exp()
         return (-((1.0 - pt) ** focal_gamma) * logpt).mean()
+    if mode == "wce":
+        assert class_weight is not None, "wce needs class_weight"
+        w = class_weight.to(device=logits.device, dtype=logits.dtype)
+        return F.cross_entropy(logits, labels, weight=w)
+    if mode == "la":
+        assert log_prior is not None, "la needs log_prior"
+        lp = log_prior.to(device=logits.device, dtype=logits.dtype)
+        return F.cross_entropy(logits + la_tau * lp, labels)
     raise ValueError(f"unknown --loss mode: {mode!r}")
 
 
-def make_loss_trainer(base_cls, mode, focal_gamma=2.0, label_smoothing=0.1):
+def make_loss_trainer(base_cls, mode, focal_gamma=2.0, label_smoothing=0.1,
+                      class_weight=None, log_prior=None, la_tau=1.0):
     """Trainer that swaps the head classification loss for a macro-F1-targeted
-    variant (focal / label-smoothing). mode='ce' is never wrapped by the caller, so
-    the stock Trainer loss path stays byte-identical to before."""
+    variant (focal / label-smoothing / class-weighted-CE / logit-adjusted). mode='ce'
+    is never wrapped by the caller, so the stock Trainer loss path stays byte-identical
+    to before. class_weight / log_prior are precomputed from the TRAIN split."""
 
     class _LossTrainer(base_cls):
         def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
             outputs = model(**inputs)
             loss = classification_loss(outputs.logits, inputs["labels"],
-                                       mode, focal_gamma, label_smoothing)
+                                       mode, focal_gamma, label_smoothing,
+                                       class_weight, log_prior, la_tau)
             return (loss, outputs) if return_outputs else loss
 
     return _LossTrainer
@@ -563,11 +635,31 @@ def main():
     ap.add_argument("--lr", type=float, default=2e-5)          # full-FT needs a small LR
     ap.add_argument("--batch_size", type=int, default=4)       # full-FT is VRAM-heavy (~11GB GPU)
     ap.add_argument("--grad_accum", type=int, default=4)       # effective batch 16
+    ap.add_argument("--grad_checkpointing", default="auto", choices=["auto", "on", "off"],
+                    help="recompute activations in backward to save VRAM (~30-40%% slower). "
+                         "auto = on only for large (>400M) or long-seq (>512) configs, off "
+                         "otherwise (e.g. granite-311m@512 fits a 3090 fine without it — "
+                         "result-neutral, pure recompute). on/off force it.")
+    ap.add_argument("--attn_impl", default="auto",
+                    choices=["auto", "flash_attention_2", "sdpa", "eager"],
+                    help="attention kernel. auto = flash_attention_2 if flash-attn is "
+                         "installed else sdpa. ModernBERT (granite) gains most from flash "
+                         "(unpadding); needs `pip install flash-attn`.")
+    ap.add_argument("--group_by_length", action="store_true",
+                    help="batch similar-length samples together to cut padding waste "
+                         "(big speedup at small batch). NOTE: changes batch composition -> "
+                         "not byte-identical to a non-grouped baseline (effect on macro-F1 "
+                         "is typically <0.001, but keep it consistent within a comparison).")
     ap.add_argument("--optim", default="adamw_torch",
                     help="optimizer. adamw_torch (default, best quality) or sgd "
                          "(zero optimizer state -> fits bigger models like Qwen3 full-FT). "
                          "SGD usually needs a higher --lr.")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--init_seed", type=int, default=-1,
+                    help="seed for init/shuffle/dropout ONLY (head init, dataloader order, "
+                         "dropout); the train/val SPLIT stays pinned to --seed. -1 = use "
+                         "--seed (behavior unchanged). Set it to vary training stochasticity "
+                         "while keeping the split FIXED — for clean same-split model soups (E12).")
     ap.add_argument("--out_dir", default="./output")
     ap.add_argument("--results_name", default="ft_results.csv",
                     help="results CSV filename; give each array task a unique one to "
@@ -580,6 +672,18 @@ def main():
                     help="fold 75%% of the val split into training; the remaining 25%% "
                          "(stratified) stays held out for eval + calibration. Safe to combine "
                          "with --init_from: the checkpoint only ever saw the train split")
+    ap.add_argument("--keep_indices", default="",
+                    help="path to a .npy of ABSOLUTE sample indices (into the 70k) — restrict "
+                         "TRAINING to tr ∩ these (drop-noisy coreset). Val slice unchanged")
+    ap.add_argument("--log_dynamics", default="",
+                    help="path to write per-epoch TRAIN dynamics npz (softmax over the train "
+                         "set each epoch) for cartography / AUM / forgetting / EL2N scoring")
+    ap.add_argument("--reduced_ids", default="",
+                    help="E24 method-A ONLY (default off). Path to a_reduced_*.npz (ids_flat + "
+                         "lengths, aligned to the 70k). When set, train/val consume these "
+                         "PRE-tokenized reduced input_ids instead of serializing+tokenizing texts; "
+                         "everything else (split/recipe/init) is unchanged. Plain static path only "
+                         "(no hist_dropout/distill/weights).")
     ap.add_argument("--tag", default="",
                     help="suffix for the run dir (ft_<model>_<tag>) so reruns don't clobber "
                          "earlier checkpoints of the same model")
@@ -675,22 +779,73 @@ def main():
                          "(alpha=2r, dropout .05, q/v projections + head). Pair with "
                          "--init_from: the base stays frozen, checkpoints hold only "
                          "adapter+head — built for shared-backbone specialist packs")
-    ap.add_argument("--loss", default="ce", choices=["ce", "focal", "ls"],
+    ap.add_argument("--loss", default="ce", choices=["ce", "focal", "ls", "wce", "la"],
                     help="head classification loss — REPLACES cross-entropy (not an "
                          "aux term). ce = plain CE (default; path unchanged); focal = "
                          "multiclass focal loss (see --focal_gamma); ls = CE with "
-                         "label smoothing (see --label_smoothing). Not combinable "
+                         "label smoothing (see --label_smoothing); wce = class-weighted "
+                         "CE ('balanced' inverse-freq weights); la = logit-adjusted loss "
+                         "(train-prior log-shift, see --la_tau). Not combinable "
                          "with --distill_from/--rdrop/--supcon/--hard_boundary")
     ap.add_argument("--focal_gamma", type=float, default=2.0,
                     help="focusing parameter gamma for --loss focal")
     ap.add_argument("--label_smoothing", type=float, default=0.1,
                     help="smoothing epsilon for --loss ls")
+    ap.add_argument("--la_tau", type=float, default=1.0,
+                    help="logit-adjustment strength tau for --loss la "
+                         "(logits + tau*log_prior; 1.0 = the consistent setting)")
+    ap.add_argument("--ltp_final_threshold", type=float, default=0.0,
+                    help="E18 Learned Token Pruning (granite/ModernBERT only): "
+                         "final_token_threshold for the absolute-threshold pruner "
+                         "(0 = off). >0 enables SOFT-mask LTP training — per-layer "
+                         "learnable thresholds ramp base=final*i/L, soft mask "
+                         "sigmoid((attn_received - thr)/T) scales each layer output, plus "
+                         "--ltp_lambda*sum(mask.mean()) sparsity term. Forces "
+                         "attn_impl=eager + grad_checkpointing off. Not combinable with "
+                         "--lora/--distill_from/--rdrop/--supcon/--hard_boundary/--llrd. "
+                         "See src/ltp_modeling.py")
+    ap.add_argument("--ltp_lambda", type=float, default=0.0,
+                    help="LTP sparsity regularizer weight (higher = prune more tokens)")
+    ap.add_argument("--ltp_temperature", type=float, default=1e-3,
+                    help="LTP soft-mask sigmoid temperature")
+    ap.add_argument("--ltp_lr_threshold", type=float, default=0.0,
+                    help="separate LR for the LTP threshold params (0 = use --lr); the "
+                         "LTP reference trains thresholds with their own optimizer LR")
+    ap.add_argument("--ltp_temp_start", type=float, default=None,
+                    help="LTP soft-mask temperature at the START of training (default = "
+                         "--ltp_temperature, i.e. no anneal). LINEARLY annealed to "
+                         "--ltp_temp_end over the run. Start soft (e.g. 0.05 ~10x the "
+                         "attention-score scale) for gentle masks + O(1/T)~20 gradients so "
+                         "a trained init eases in instead of exploding at fixed small T")
+    ap.add_argument("--ltp_temp_end", type=float, default=None,
+                    help="LTP soft-mask temperature at the END of training (default = "
+                         "--ltp_temperature). Set ~the attention-score scale (e.g. 0.005) "
+                         "for sharp near-hard masks that match hard-mode deployment. When "
+                         "temp_start==temp_end the temperature is fixed (back-compat)")
+    ap.add_argument("--ltp_hard_recover", action="store_true",
+                    help="E18 fixed-threshold HARD-DROP recovery-FT (recommended over soft): "
+                         "train in HARD mode (actually drop tokens below the fixed ramp "
+                         "threshold base[i]=final*i/L), FREEZE the thresholds (no learnable "
+                         "deltas, no --ltp_lr_threshold group, no sparsity regularizer), and "
+                         "recover the WEIGHTS only. No temperature/soft-mask -> no 1/T "
+                         "gradient explosion. Train/test consistent (E4/E16 recipe). Pair "
+                         "with --init_from a trained ckpt + --lr ~1e-5 + --loss ls")
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     from transformers import (
         AutoModelForSequenceClassification, AutoTokenizer, DataCollatorWithPadding,
         Trainer, TrainingArguments,
     )
+
+    # --init_seed decouples init/shuffle stochasticity from the train/val SPLIT (which
+    # stays on --seed via explicit random_state). Set it (>=0) to vary head-init/dataloader
+    # order while keeping the split fixed — clean same-split model soups (E12). -1 = unchanged.
+    init_seed = args.init_seed if args.init_seed >= 0 else args.seed
+    if args.init_seed >= 0:
+        from transformers import set_seed
+        set_seed(init_seed)  # head init + shuffle + dropout; split stays on random_state=args.seed
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info(f"device={device}  model={args.model}  method=full-finetune+linear-head")
@@ -711,6 +866,12 @@ def main():
             va, test_size=0.25, stratify=y_ids[va], random_state=args.seed)
         tr = np.concatenate([tr, va_train])
         va = va_eval
+    if args.keep_indices:
+        keep = set(np.load(args.keep_indices).tolist())
+        before = len(tr)
+        tr = tr[np.array([i in keep for i in tr], dtype=bool)]
+        logger.info(f"keep_indices ({args.keep_indices}): train {before} -> {len(tr)} "
+                    f"(dropped {before - len(tr)} noisy)")
     classes = ALL_CLASSES
     if args.group_task:
         assert not args.pair, "--group_task and --pair are mutually exclusive"
@@ -757,9 +918,24 @@ def main():
         tok.pad_token = tok.eos_token
     if args.init_from:
         logger.info(f"continuing from fine-tuned checkpoint: {args.init_from}")
+    attn_impl = args.attn_impl
+    if attn_impl == "auto":
+        try:
+            import flash_attn  # noqa: F401
+            attn_impl = "flash_attention_2"
+        except ImportError:
+            attn_impl = "sdpa"
+    if args.ltp_final_threshold > 0 and attn_impl != "eager":
+        logger.info(f"LTP on -> forcing attn_implementation=eager (was {attn_impl}); "
+                    "flash/sdpa don't materialize the attention probs LTP scores on")
+        attn_impl = "eager"
+    logger.info(f"attn_implementation: {attn_impl}"
+                + ("  (flash-attn not installed -> sdpa; `pip install flash-attn` to enable)"
+                   if attn_impl == "sdpa" and args.attn_impl == "auto" else ""))
     model = AutoModelForSequenceClassification.from_pretrained(
         args.init_from or args.model, num_labels=len(classes),
         torch_dtype=torch.float32,   # fp32 for stable classifier training
+        attn_implementation=attn_impl,
         trust_remote_code=True,
         # real action names so config.id2label maps ids -> actions (not LABEL_0...);
         # needed for logit_bias.json keys and for inference to emit action strings.
@@ -796,6 +972,27 @@ def main():
                                     device=device)
         logger.info(f"FFN factorized to rank {args.factor_ffn} in {len(done)} "
                     f"projections (whitened-SVD init); config.factored_ffn recorded")
+
+    if args.ltp_final_threshold > 0:
+        assert not args.lora, "LTP (E18) + LoRA not supported (LTP trains full model + thresholds)"
+        assert not args.llrd, "LTP + --llrd not supported (LTP uses its own threshold LR group)"
+        assert getattr(model.config, "model_type", "") == "modernbert", \
+            "LTP (E18) is implemented for granite/ModernBERT only"
+        from src.ltp_modeling import install_ltp
+        ltp_mode = "hard" if args.ltp_hard_recover else "soft"
+        # resolve the temperature anneal endpoints (default = fixed --ltp_temperature)
+        ltp_t_start = args.ltp_temp_start if args.ltp_temp_start is not None else args.ltp_temperature
+        ltp_t_end = args.ltp_temp_end if args.ltp_temp_end is not None else args.ltp_temperature
+        install_ltp(model, args.ltp_final_threshold, temperature=ltp_t_start,
+                    ltp_lambda=args.ltp_lambda, mode=ltp_mode)
+        if args.ltp_hard_recover:
+            # fixed-threshold hard-drop recovery: freeze the per-layer thresholds at the
+            # ramp base[i]=final*i/L (deltas stay 0, not trained) -> weights-only recovery,
+            # no 1/T soft-mask gradient. The drop decision (score>=thr) is non-diff by
+            # construction; weight grads still flow through the KEPT tokens' pathway.
+            for p in model.model.ltp_delta:
+                p.requires_grad_(False)
+            logger.info("LTP hard-recover: thresholds FROZEN at ramp; weights-only FT")
 
     if args.lora:
         from peft import LoraConfig, TaskType, get_peft_model
@@ -848,17 +1045,30 @@ def main():
             f"teacher logits rows ({len(teacher)}) != samples ({len(texts)})"
         logger.info(f"distilling from {args.distill_from} "
                     f"(alpha={args.distill_alpha}, T={args.distill_T})")
-    if args.hist_dropout:
+    if args.reduced_ids:                       # E24 method-A: PRE-tokenized reduced inputs (default off)
+        assert not (args.hist_dropout or args.distill_from or weights_tr is not None), \
+            "--reduced_ids uses the plain static path only (no hist_dropout/distill/weights)"
+        _rd = np.load(args.reduced_ids)
+        _flat, _rlen = _rd["ids_flat"], _rd["lengths"]
+        _off = np.concatenate([[0], np.cumsum(_rlen)]).astype(np.int64)
+        _get = lambda i: _flat[_off[i]:_off[i + 1]].tolist()
+        train_ds = build_ids_dataset([_get(i) for i in tr], y_ids[tr])
+        val_ds = build_ids_dataset([_get(i) for i in va], y_ids[va])
+        logger.info(f"E24 --reduced_ids {args.reduced_ids}: mean reduced train len "
+                    f"{np.mean([int(_rlen[i]) for i in tr]):.0f} tok "
+                    f"(full-input path bypassed; split/recipe unchanged)")
+    elif args.hist_dropout:
         assert not args.distill_from, "--hist_dropout + --distill_from not supported together"
         logger.info(f"history dropout p={args.hist_dropout} (fresh draw per epoch)")
         train_ds = build_dynamic_dataset(tok, [samples[i] for i in tr], y_ids[tr],
-                                         args.max_len, max_hist, args.hist_dropout, args.seed,
+                                         args.max_len, max_hist, args.hist_dropout, init_seed,
                                          variant=args.serialize)
+        val_ds = build_dataset(tok, [texts[i] for i in va], y_ids[va], args.max_len)
     else:
         train_ds = build_dataset(tok, [texts[i] for i in tr], y_ids[tr], args.max_len,
                                  teacher=teacher[tr] if teacher is not None else None,
                                  weights=weights_tr)
-    val_ds = build_dataset(tok, [texts[i] for i in va], y_ids[va], args.max_len)
+        val_ds = build_dataset(tok, [texts[i] for i in va], y_ids[va], args.max_len)
     collator = DataCollatorWithPadding(tok)
     if teacher is not None or weights_tr is not None:
         collator = ExtrasCollator(collator)
@@ -877,6 +1087,25 @@ def main():
     # 2080 Ti (Turing) has no bf16 -> falls back to fp16 as before.
     use_bf16 = device == "cuda" and torch.cuda.is_bf16_supported()
     logger.info(f"precision: {'bf16' if use_bf16 else 'fp16' if device == 'cuda' else 'fp32'}")
+    # gradient checkpointing: only worth its ~30-40% slowdown when the config is
+    # actually VRAM-tight (large backbone or long sequences). granite-311m@512 uses
+    # ~7GB of a 24GB card WITH it on -> pure overhead; auto turns it off. It is
+    # result-neutral (recomputes the same forward), so 'off' stays comparable to an
+    # 'on' baseline.
+    if args.grad_checkpointing == "on":
+        use_gc = True
+    elif args.grad_checkpointing == "off":
+        use_gc = False
+    else:  # auto
+        n_params = sum(p.numel() for p in model.parameters())
+        use_gc = n_params > 4.0e8 or args.max_len > 512
+    if args.ltp_final_threshold > 0 and use_gc:
+        logger.info("LTP on -> disabling gradient_checkpointing (LTP's custom "
+                    "encoder-loop forward doesn't support it; matches the reference)")
+        use_gc = False
+    logger.info(f"gradient_checkpointing: {use_gc} (--grad_checkpointing={args.grad_checkpointing}"
+                + (f", {sum(p.numel() for p in model.parameters())/1e6:.0f}M params, max_len={args.max_len})"
+                   if args.grad_checkpointing == "auto" else ")"))
     targs = TrainingArguments(
         output_dir=run_dir, num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
@@ -886,13 +1115,14 @@ def main():
         warmup_ratio=0.05, weight_decay=0.01,
         logging_strategy="steps", logging_steps=50,   # periodic {loss,epoch} log lines
         disable_tqdm=False,                            # keep the bar; tqdm.auto is log-safe
-        gradient_checkpointing=True,                   # trade compute for VRAM (full-FT is heavy)
+        gradient_checkpointing=use_gc,                 # trade compute for VRAM (full-FT is heavy)
+        group_by_length=args.group_by_length,          # cut padding waste at small batch
         eval_strategy="epoch", save_strategy="epoch",
         load_best_model_at_end=True, metric_for_best_model="macro_f1", greater_is_better=True,
         save_total_limit=args.keep_checkpoints,
         save_only_model=(args.keep_checkpoints > 1),   # SWA needs weights only; saves ~2x disk
         bf16=use_bf16, fp16=(device == "cuda" and not use_bf16),
-        report_to="none", seed=args.seed,
+        report_to="none", seed=init_seed,
     )
     optimizers = (None, None)
     if args.llrd:
@@ -908,15 +1138,72 @@ def main():
         trainer_cls = make_aux_trainer(Trainer, rdrop=args.rdrop, supcon=supcon_cfg)
     if args.loss != "ce":
         assert teacher is None and not aux_on, \
-            "--loss focal/ls replaces the classification CE and is not combinable " \
+            "--loss focal/ls/wce/la replaces the classification CE and is not combinable " \
             "with --distill_from / --rdrop / --supcon / --hard_boundary"
+        class_weight = log_prior = None
+        if args.loss in ("wce", "la"):
+            counts = np.bincount(y_ids[tr], minlength=len(classes)).astype(np.float64)
+            assert (counts > 0).all(), f"--loss {args.loss}: empty class in train split: {counts}"
+            if args.loss == "wce":
+                w = counts.sum() / (len(classes) * counts)          # 'balanced' (sklearn)
+                class_weight = torch.tensor(w, dtype=torch.float32)
+                logger.info(f"wce weights: min={w.min():.3f} max={w.max():.3f} "
+                            f"(rarest={classes[int(counts.argmin())]}, "
+                            f"commonest={classes[int(counts.argmax())]})")
+            else:
+                log_prior = torch.tensor(np.log(counts / counts.sum()), dtype=torch.float32)
+                logger.info(f"la log-prior: min={float(log_prior.min()):.3f} "
+                            f"max={float(log_prior.max()):.3f} tau={args.la_tau}")
         trainer_cls = make_loss_trainer(Trainer, args.loss, args.focal_gamma,
-                                        args.label_smoothing)
+                                        args.label_smoothing, class_weight, log_prior,
+                                        args.la_tau)
+    if args.ltp_final_threshold > 0 and not args.ltp_hard_recover:
+        assert teacher is None and not aux_on, \
+            "LTP not combinable with --distill_from/--rdrop/--supcon/--hard_boundary"
+        from src.ltp_modeling import make_ltp_trainer, separate_threshold_params
+        # SOFT LTP trainer = classification loss (respecting --loss, e.g. ls) + sparsity
+        # regularizer. When --loss ce, loss_fn=None -> the model's built-in CE is used.
+        if args.loss != "ce":
+            def _ltp_loss_fn(logits, labels, _m=args.loss, _fg=args.focal_gamma,
+                             _ls=args.label_smoothing, _cw=class_weight, _lp=log_prior,
+                             _lt=args.la_tau):
+                return classification_loss(logits, labels, _m, _fg, _ls, _cw, _lp, _lt)
+        else:
+            _ltp_loss_fn = None
+        trainer_cls = make_ltp_trainer(Trainer, loss_fn=_ltp_loss_fn)
+        if args.ltp_lr_threshold > 0:      # reference: thresholds get their own LR group
+            thr_p, other_p = separate_threshold_params(model)
+            opt = torch.optim.AdamW(
+                [{"params": other_p, "lr": args.lr},
+                 {"params": thr_p, "lr": args.ltp_lr_threshold}],
+                lr=args.lr, weight_decay=targs.weight_decay)
+            optimizers = (opt, None)
+            logger.info(f"LTP: separate threshold LR group lr={args.ltp_lr_threshold} "
+                        f"({len(thr_p)} threshold params) vs base lr={args.lr}")
+    # hard-recover mode: thresholds frozen, NO regularizer/threshold-group -> the trainer
+    # stays whatever --loss selected (e.g. make_loss_trainer for ls). The hard-pruned
+    # forward + plain classification loss recovers weights only (E4/E16 recipe).
+    elif args.ltp_final_threshold > 0 and args.ltp_hard_recover:
+        assert teacher is None and not aux_on, \
+            "LTP not combinable with --distill_from/--rdrop/--supcon/--hard_boundary"
+        logger.info("LTP hard-recover: weights-only, no sparsity regularizer, "
+                    "no threshold LR group")
+    dyn_callbacks = []
+    if args.log_dynamics:
+        dyn_callbacks.append(make_dynamics_logger(
+            train_ds, collator, tr, y_ids[tr], args.log_dynamics))
+        logger.info(f"logging per-epoch train dynamics -> {args.log_dynamics}")
     trainer = trainer_cls(
         model=model, args=targs, train_dataset=train_ds, eval_dataset=val_ds,
         data_collator=collator, compute_metrics=make_compute_metrics(len(classes)),
-        optimizers=optimizers,
+        optimizers=optimizers, callbacks=dyn_callbacks or None,
     )
+    if (args.ltp_final_threshold > 0 and not args.ltp_hard_recover
+            and ltp_t_start != ltp_t_end):
+        from src.ltp_modeling import make_ltp_temp_callback
+        trainer.add_callback(make_ltp_temp_callback(model, ltp_t_start, ltp_t_end))
+        logger.info(f"LTP temperature anneal: {ltp_t_start} -> {ltp_t_end} "
+                    f"(linear over training)")
 
     trainer.train()
     metrics = trainer.evaluate()

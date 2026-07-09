@@ -60,6 +60,8 @@ def main():
                     help="input serialization: v1 (our formats) or names "
                          "(teammate's granite format — pair with --max_len 512)")
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     samples, y = load_samples(args.data_dir)
     y_ids = np.array([CLASS_TO_ID[a] for a in y])

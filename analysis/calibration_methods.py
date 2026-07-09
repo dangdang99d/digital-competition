@@ -118,6 +118,8 @@ def main():
     ap.add_argument("--max_len", type=int, default=512)
     ap.add_argument("--logits", default=LOGITS_PATH)
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     if args.dump:
         dump_logits(args.ckpt, args.data_dir, args.max_len, args.logits)

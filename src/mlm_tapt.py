@@ -44,6 +44,8 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out_dir", default="./output/pat/granite_tapt_mlm")
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     from transformers import (
         AutoModelForMaskedLM,

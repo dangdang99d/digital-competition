@@ -1,5 +1,5 @@
 # Branch: translation — ko→en pipeline for token surgery + English-specialist backbones
-Git branch: `research/translation` · Baseline: **qwen3 KO = 0.7682 uncal**; inference budget = 10 min / 30k rows (must also fit the classifier). All scores uncalibrated macro-F1.
+Branch: `kyusang_kvprune_svd` · logical group `research/translation` (the per-branch topology was planned but never created — all work is committed on kyusang_kvprune_svd) · Baseline: **qwen3 KO = 0.7682 uncal**; inference budget = 10 min / 30k rows (must also fit the classifier). All scores uncalibrated macro-F1.
 
 Hypothesis: English text enables token surgery and English-specialist models. (A teammate's −0.17 result was invalid — train/test language mismatch + translator inconsistency; this branch tests the idea properly.) Note: E15a/b/d models are the **translator**; the classifier models (granite/qwen3/EN-specialist) only enter at E15c.
 
@@ -10,7 +10,7 @@ Legend: ❌ no-go · ⛔ gated, not run.
 |---|---|---|:--:|---|---|
 | E15a | NLLB-600M qualification | NLLB-200-distilled-600M (translator) | ❌ | 93 min / 30k ≫ budget | NO-GO (throughput) |
 | E15b | code-span protection | NLLB (translator) | ⛔ | — | gated on E15a |
-| E15c | EN-data classifiers vs KO (**payoff test**) | qwen3 / granite / DeBERTa-v3 / ModernBERT | ⛔ | — | never tested |
+| E15c | EN-data classifiers vs KO (**payoff test**) | qwen3 / granite / DeBERTa-v3 / ModernBERT | 🟢 | — | OPEN — offline-translate train, no inference translation (NOT closed by E15a) |
 | E15d | translator compression + budget fit | NLLB (translator) | ⛔ | — | gated on E15c |
 
 ## E15a — NLLB-600M qualification (GO/NO-GO)
@@ -18,8 +18,8 @@ Legend: ❌ no-go · ⛔ gated, not run.
 - **What:** qualify NLLB-600M as the ko→en translator (quality / code-preservation / throughput).
 - **Baseline:** the 10-min / 30k inference budget (translator must fit alongside the classifier).
 - **Change:** translate KO→EN at inference with NLLB-600M.
-- **Result:** **93 min for 30k** (~31 min even at a 3× speedup) — far over budget.
-- **Verdict:** ❌ **NO-GO (throughput)** — translation-at-inference can't fit; this kills the deploy path.
+- **Result:** **93 min for 30k, measured on a LOCAL 3090** (23.23 sent/s, batch16/greedy/fp16 — the fastest decode config). The T4 eval server is slower than a 3090, so its time is ≥ this — anchor-safe NO-GO regardless (no fixed-factor server projection). The "~31 min at a 3× speedup" is a hypothetical optimization cushion ("even if optimized 3×, still fails"), not a T4 estimate.
+- **Verdict:** ❌ **NO-GO for INFERENCE-TIME translation** — a translator stage can't fit the 10-min budget. This kills E15b and E15d (both inference-time). It does **NOT** kill **E15c**, which translates the TRAIN set OFFLINE and ships only a KO/EN classifier (zero inference-time translation) — E15c stays open/untested.
 
 ## E15b — code-span protection
 - **Model:** NLLB translator (+ protection layer).

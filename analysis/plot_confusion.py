@@ -31,6 +31,8 @@ def main():
     ap.add_argument("--out", default="figures/confusion_wrong_bgem3.png")
     ap.add_argument("--title", default="bge-m3 v1 — wrong predictions (val, n=3,570)")
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     df = pd.read_csv(args.summary)
     w = df[~df["correct"]]

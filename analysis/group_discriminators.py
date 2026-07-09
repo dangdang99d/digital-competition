@@ -47,6 +47,8 @@ def main():
     ap.add_argument("--data_dir", default="./data")
     ap.add_argument("--top_k", type=int, default=15)
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     import csv
     samples = [json.loads(l) for l in open(f"{args.data_dir}/train.jsonl", encoding="utf-8")]

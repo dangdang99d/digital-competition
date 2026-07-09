@@ -47,6 +47,8 @@ def main():
                     help="serialization variant the model was trained on — MUST match so "
                          "variant-specific tokens are kept, not pruned to <unk>")
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 

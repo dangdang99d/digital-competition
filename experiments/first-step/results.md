@@ -1,5 +1,5 @@
 # Branch: first-step — the zero-history failure mode
-Git branch: `research/first-step` · Baseline: **generalist on the 1,807 first-step val slice = 0.555 uncal** (bge-m3; qwen3 generalist 0.573). All scores uncalibrated macro-F1 on the identical slice.
+Branch: `kyusang_kvprune_svd` · logical group `research/first-step` (the per-branch topology was planned but never created — all work is committed on kyusang_kvprune_svd) · Baseline: **generalist on the 1,807 first-step val slice = 0.555 uncal** (bge-m3; qwen3 generalist 0.573). All scores uncalibrated macro-F1 on the identical slice.
 
 ## Summary
 Legend: ❌ specializing hurts. Model: **bge-m3** (both arms).

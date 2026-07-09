@@ -65,6 +65,8 @@ def main():
     ap.add_argument("--data_dir", default="./data")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     cks = sorted(glob.glob(os.path.join(args.run_dir, "checkpoint-*")),
                  key=lambda p: int(p.rsplit("-", 1)[1]))

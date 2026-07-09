@@ -43,6 +43,8 @@ def main():
     ap.add_argument("--min_freq", type=int, default=2000)
     ap.add_argument("--top_k", type=int, default=25)
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     tok_stats = defaultdict(lambda: [0, 0.0])       # tok -> [count, sum norm saliency]
     cat_share = defaultdict(float)                  # category -> summed saliency share

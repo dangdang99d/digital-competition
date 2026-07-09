@@ -64,6 +64,8 @@ def main():
     ap.add_argument("--max_len", type=int, default=512)
     ap.add_argument("--batch_size", type=int, default=32)
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     samples, y = load_samples(args.data_dir)
     texts = build_texts(samples)

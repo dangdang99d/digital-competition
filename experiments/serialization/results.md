@@ -1,5 +1,5 @@
 # Branch: serialization — input-format gains on the best backbone
-Git branch: `research/serialization` · Baseline: **qwen3 v1@512 = 0.7682 uncal**. All scores uncalibrated macro-F1.
+Branch: `kyusang_kvprune_svd` · logical group `research/serialization` (the per-branch topology was planned but never created — all work is committed on kyusang_kvprune_svd) · Baseline: **qwen3 v1@512 = 0.7682 uncal**. All scores uncalibrated macro-F1.
 
 ## Summary
 Legend: ⛔ gated, not run.

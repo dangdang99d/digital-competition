@@ -100,6 +100,8 @@ def main():
     ap.add_argument("--n_val", type=int, default=0, help="0 = full val")
     ap.add_argument("--n_calib", type=int, default=256)
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     samples, y = load_samples("./data")
     texts = build_texts(samples, input_mode="context", max_hist=None, variant="v1")

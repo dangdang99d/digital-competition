@@ -65,6 +65,8 @@ def main():
     ap.add_argument("--data_dir", default="./data")
     ap.add_argument("--out_dir", default="./output/sessions")
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     labels = {}
     with open(os.path.join(args.data_dir, "train_labels.csv"), encoding="utf-8") as f:

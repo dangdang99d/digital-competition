@@ -44,6 +44,9 @@ checkpoints/
 logs/
 wandb/
 
+*.npz
+*.npy
+
 # Research notes & papers (not part of the runnable project)
 docs/
 papers/

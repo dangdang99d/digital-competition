@@ -1,5 +1,5 @@
 # Branch: reasoning — reasoning-FT backbone + classification head
-Git branch: `research/reasoning` · Baseline: **qwen3 v1@512 plain full-FT = 0.7682 uncal** (identical-recipe control).
+Branch: `kyusang_kvprune_svd` · logical group `research/reasoning` (the per-branch topology was planned but never created — all work is committed on kyusang_kvprune_svd) · Baseline: **qwen3 v1@512 plain full-FT = 0.7682 uncal** (identical-recipe control).
 
 ## Summary
 Legend: ✋ on hold.

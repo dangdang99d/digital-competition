@@ -1,5 +1,5 @@
 # Branch: deferral — route low-confidence samples to a better source
-Git branch: `research/deferral` · Baseline: **single-model champion qwen3 = 0.7682 uncal**. All scores uncalibrated macro-F1.
+Branch: `kyusang_kvprune_svd` · logical group `research/deferral` (the per-branch topology was planned but never created — all work is committed on kyusang_kvprune_svd) · Baseline: **single-model champion qwen3 = 0.7682 uncal**. All scores uncalibrated macro-F1.
 
 ## Summary
 Legend: ❌ failed · 🚫 prohibited.

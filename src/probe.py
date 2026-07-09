@@ -139,6 +139,8 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out_dir", default="./output")
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info(f"device={device}  input={args.input}")

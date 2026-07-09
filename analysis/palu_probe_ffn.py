@@ -169,6 +169,8 @@ def main():
     ap.add_argument("--n_calib", type=int, default=256)
     ap.add_argument("--out_json", default="")
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
     ratios = [float(x) for x in args.ratios.split(",")]
 
     samples, y = load_samples("./data")

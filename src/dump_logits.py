@@ -27,6 +27,8 @@ def main():
     ap.add_argument("--batch_size", type=int, default=48)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 

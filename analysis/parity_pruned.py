@@ -50,6 +50,8 @@ def main():
     ap.add_argument("--serialize", default="v1", choices=sorted(SERIALIZE_VARIANTS))
     ap.add_argument("--n", type=int, default=3000)
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     samples, y = load_samples("./data")

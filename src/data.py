@@ -126,6 +126,10 @@ SERIALIZE_VARIANTS = {
     # richmeta + directory simplification inside history action args too
     # (path/scope/pattern values). One axis vs richmeta: v1 -> richmeta -> richargs.
     "richargs":  {"rich_meta": True, "arg_basenames": True},
+    # teammate Ki Min Seo's exact SOTA-0.77427 format — a DIFFERENT structure
+    # ([META]/[HIST]/[CUR], hist-cap 12); handled specially in build_texts via
+    # serialize_names(), NOT serialize(). Empty dict = just a valid --serialize choice.
+    "names":     {},
 }
 
 
@@ -192,6 +196,93 @@ def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
     return "\n".join(parts)
 
 
+# ---- teammate Ki Min Seo's 'names' serialization (his SOTA-0.77427 granite format) ----
+# Ported byte-for-byte from submit_names_single.zip:render_sample. His format is a
+# DIFFERENT structure from ours ([META]/[HIST]/[CUR] single line, history capped at 12),
+# so it gets its own function + a special branch in build_texts (NOT serialize()). Helpers
+# are self-contained (his exact logic, incl. non-int -> "unknown") to guarantee an identical
+# string. Used to train granite on his serialization for a clean serialization-only compare.
+def _names_safe_text(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _names_compact_json(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _names_budget_bucket(tokens):
+    try:
+        tokens = int(tokens)
+    except (TypeError, ValueError):
+        return "unknown"
+    if tokens < 2_000:
+        return "very_low"
+    if tokens < 10_000:
+        return "low"
+    if tokens < 50_000:
+        return "medium"
+    return "high"
+
+
+def _names_elapsed_bucket(seconds):
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        return "unknown"
+    if seconds < 120:
+        return "early"
+    if seconds < 900:
+        return "mid"
+    return "late"
+
+
+def serialize_names(r, max_history_events=12):
+    """Ki Min Seo's 'names' serialization, byte-identical to his render_sample."""
+    meta = r.get("session_meta") or {}
+    workspace = meta.get("workspace") or {}
+    history = r.get("history") or []
+    recent_history = history[-max_history_events:]
+
+    open_files = workspace.get("open_files") or []
+    language_mix = workspace.get("language_mix") or {}
+    main_lang = ""
+    if language_mix:
+        main_lang = max(language_mix.items(), key=lambda item: item[1])[0]
+
+    meta_text = " ".join([
+        f"tier={_names_safe_text(meta.get('user_tier'))}",
+        f"pref={_names_safe_text(meta.get('language_pref'))}",
+        f"turn={_names_safe_text(meta.get('turn_index'))}",
+        f"budget={_names_budget_bucket(meta.get('budget_tokens_remaining'))}",
+        f"elapsed={_names_elapsed_bucket(meta.get('elapsed_session_sec'))}",
+        f"lang={main_lang}",
+        f"ci={_names_safe_text(workspace.get('last_ci_status'))}",
+        f"git={'dirty' if workspace.get('git_dirty') else 'clean'}",
+        f"open={len(open_files)}",
+        f"loc={_names_safe_text(workspace.get('loc'))}",
+    ])
+    _names = [f.split("/")[-1] for f in open_files[:6]]
+    meta_text = meta_text + " openfiles=" + " ".join(_names)
+
+    hist_parts = []
+    for item in recent_history:
+        role = item.get("role", "")
+        if role == "user":
+            hist_parts.append(f"U: {_names_safe_text(item.get('content'))}")
+        elif role == "assistant_action":
+            name = _names_safe_text(item.get("name"))
+            args = _names_compact_json(item.get("args") or {})
+            result = _names_safe_text(item.get("result_summary"))
+            hist_parts.append(f"A[{name}] {args} -> {result}")
+
+    return " ".join(["[META]", meta_text, "[HIST]", " | ".join(hist_parts),
+                     "[CUR]", _names_safe_text(r.get("current_prompt"))])
+
+
 def build_texts(samples, input_mode="context", max_hist=None, variant="v1",
                 strip_history=False):
     """input_mode: 'context' = full serialized; 'prompt' = current_prompt only (baseline-style).
@@ -200,6 +291,10 @@ def build_texts(samples, input_mode="context", max_hist=None, variant="v1",
     if input_mode == "prompt":
         return [s["current_prompt"] or "" for s in samples]
     if input_mode == "context":
+        if variant == "names":
+            # his exact serialization; his hist-cap is 12 (used when max_hist unset)
+            mh = max_hist if isinstance(max_hist, int) and max_hist > 0 else 12
+            return [serialize_names(s, max_history_events=mh) for s in samples]
         kw = SERIALIZE_VARIANTS[variant]
         return [serialize(s, max_hist=max_hist, strip_history=strip_history, **kw)
                 for s in samples]

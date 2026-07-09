@@ -16,6 +16,8 @@ def main():
     ap.add_argument("--json", required=True)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     d = json.load(open(args.json))
     base = d["baseline"]

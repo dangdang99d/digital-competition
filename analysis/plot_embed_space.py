@@ -50,6 +50,8 @@ def main():
     ap.add_argument("--out", default="figures/tsne_hist0.png")
     ap.add_argument("--title", default="hist0 (bge-m3) [CLS] embeddings — 70k train samples, t-SNE")
     args = ap.parse_args()
+    from src.runlog import log_cmd
+    log_cmd()
 
     d = np.load(args.proj)
     xy, y = d["tsne"], d["y"]
