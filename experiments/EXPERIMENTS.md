@@ -28,6 +28,7 @@ working tree + live training). The table maps each group to its doc and experime
 | `research/coreset` | [experiments/coreset/results.md](coreset/results.md) | E22 (C1–C7, drop-noisy) |
 | `research/tta` | (SUBMISSIONS.md rows 11–13) | E23 (test-time adaptation) |
 | `research/token-selection` | [experiments/token-selection/results.md](token-selection/results.md) | E24 (A/B/C/D select+refit) |
+| `research/miseo-recipe` | [experiments/miseo-recipe/results.md](miseo-recipe/results.md) | E25 (a recipe repro / b +LS+bf16) |
 
 ## Dashboard
 
@@ -62,6 +63,7 @@ working tree + live training). The table maps each group to its doc and experime
 | E22 | coreset | **Drop-noisy data selection** — retrain granite on cleaned subsets (drop mislabeled), maximize macro-F1. Scorers: C1 cleanlab · C2 AUM · C4 cartography · C5 forgetting · C6 EL2N · C7 PVI → `--keep_indices` retrain; + gate analysis (can the denoised model rule out hard at inference?); + champion-recipe confirm | screen: coreset_base **0.7498** · confirm: champion **0.7803** | **Screen ✅: pvi06 +0.0063 · aum06 +0.0048** (surgical mislabel removal works; drop-hard cart/el2n HURT). Gate ✅: AUROC hard 0.830→0.835 = **inherited, not improved**; win = easy-tier F1 +0.010; suspect tier = mislabels (all models put 81–85% of preds on qwen3-consensus class). **Champion confirm ❌: pvi06 0.7700 (−0.0103) · aum06 0.7766 (−0.0037)** — gain does NOT transfer to E8a+LS full_data (LS likely absorbs the noise) | [datamap_drops](coreset/figures/datamap_drops.png) · [gate risk-cov](coreset/figures/gate_risk_coverage.png) · [suitability](coreset/figures/suitability_error_profile.png) | n/a (held-out gate failed) | ✅ **DONE — screen win, deployment NULL.** Denoising helps a CE/v1 recipe, is redundant-to-harmful under the LS champion recipe. Report: [coreset/results.md](coreset/results.md). Group 3 never run (gated) |
 | E23 | tta | **Test-time adaptation** — SHOT/IM entropy-min (sharpen + anti-collapse diversity) on the frozen granite_ls champion's **45 encoder LayerNorm affines**, 2048 test rows, fp32, at inference (`script.py` only) | granite_ls LB **0.77738** | 🏆 **LB (submitted 07-08): TTA WORKS.** lr1e-3 **0.77931** (+0.00193, past qwen3_ls 0.77921) · lr2e-4 0.77871 (+0.00133) · lr3e-3 0.77300 (−0.00438, overshoots). Optimum intermediate; clean no-shift slice was −0.0006/−0.0034/−0.0094 → real test flipped positive = exploitable shift | ⚠️ none (dose-response fig would fit) | ✅ `submit_0708_granite_tta_lr{2e4,1e3,3e3}.zip` (846M; champion model reused, only script.py swapped) | ✅ **DONE — WIN.** granite+TTA lr1e-3 = **new LB SOTA 0.77931**. ~7:45 (TTA +~2:40 on server; qwen3 9:18 would time out → granite-only). See SUBMISSIONS.md rows 11–13 |
 | E24 | token-selection | **Upstream feature/token selection** (a *filter*: score once → retrain once) — **A** attention/saliency token-select + top-k refit · **B** field-level occlusion selection · A×B scorer-overlap | granite champion **E8a+LS richargs 0.7803**; from-scratch full-input anchor **0.7790** (harness faithful) | **A ❌:** attn k90 scratch 0.7712 (−0.008) · sal k90 **0.7550 (−0.024)** — even 10% token-drop hurts, low-redundancy input; sweep stop-rule fired at k90. **B 🟡:** meta-subfield tail drops LOSSLESS (drop5 0.7780 ≈ anchor) but NO gain — efficiency only. **Overlap:** attn∩sal ≈ chance (1.2×, Spearman 0.35) → no model-independent unimportant-token set. **Recovery arm confounded** (~0.763 regardless of input — warm-start+3ep degrades champion) | — | n/a | ✅ **DONE — selection NULL for accuracy; champion stays.** C/D dropped (gated on slack — none). Report: [token-selection/results.md](token-selection/results.md) |
+| E25 | miseo-recipe | **Teammate-recipe repro** (his build_nb.py obtained 07-09) — **a:** his settings verbatim on our pipeline (names + CE + warmup 0.1 + fp16) · **b:** his settings + our levers (+ LS ε=0.1 + bf16) · **c:** = b with `richmeta` (our format, his full-path history style — direct richmeta-vs-richargs probe). All `--full_data` (stand-in for his train-on-all; NOT k-fold, per user). Read-outs: a ≈ his level? · b−a = LS+bf16 on his recipe · b vs E21 0.7731 = warmup 0.1↔0.05 single axis · c vs b = our-vs-his packaging of identical info | his LB 0.77427 / OOF base 0.7642 · E21 names+LS 0.7731 · E8a richargs+LS 0.7803 | — | — | — | 🏃 **RUNNING (launched 07-09 16:25/16:29, user-approved):** a=GPU0 · b=GPU1 · c=GPU2, detached nohup, ~1.5h. Logs `sbatch/logs/e25{a,b,c}_*.out`. New flags `--warmup_ratio`/`--precision`/`--session_fold`; new variants `names_files`/`richfiles` (existing variants verified 0/70000 vs HEAD). Plan: [miseo-recipe/results.md](miseo-recipe/results.md) |
 
 Status legend: ⏸ blocked-external · ⛔ gated · 🔎 analysis · 🏃 running · ✅ done · ❌ refuted
 New figures → `experiments/<branch>/figures/`; the `figures/` root holds pre-branch legacy plots.
@@ -258,56 +260,6 @@ Only experiments **actively waiting** or **currently running**. Items parked for
 (gated, low-priority, or final-days flyers) live under **Deferred** below; finished/dropped
 runs live under **Completed & closed runs**.
 
-### E22 · Coreset — drop-noisy data selection — ✅ DONE 2026-07-09 (screen win, champion confirm ❌) — report: [coreset/results.md](coreset/results.md)
-- **Objective:** raise **macro-F1** by retraining granite on a *cleaned* subset (drop mislabeled /
-unlearnable samples) — NOT reduce compute. Drop-noisy / data-centric denoising family, **not**
-keep-hard coreset.
-- **§1 suitability (done, no training):** ~**6% two-model consensus mislabels** (removable — better
-than pure ambiguity would predict), BUT **40% of errors are low-confidence ambiguity** and errors
-concentrate on synonymous file-ops (read/list/glob/grep, irreducible). → **surgical denoise only**;
-the blanket "drop everything the model gets wrong" is predicted to **LOWER** macro-F1 (starves rare
-classes). Figure: [suitability](coreset/figures/suitability_error_profile.png).
-- **Methods (Group 1+2 — implemented + smoke-tested, NOT run):** C1 cleanlab (k-fold OOF) · C2 AUM ·
-C4 cartography · C5 forgetting · C6 EL2N · C7 PVI → each emits a keep-set → `finetune.py
---keep_indices` retrain. Plumbing added: `--keep_indices` + `--log_dynamics`. C3 CHE deferred;
-Group 3 (co-teaching / DivideMix) gated on a proven denoise gain.
-- **Baseline:** granite CE full-56k, v1, standard split = **0.7458** (E9 control).
-- **Read-out:** each keep-set retrain's macro-F1 + **per-class F1 on the rare/confusable classes** vs
-0.7458. Decisive first read = C1 (cleanlab) + C4 (cartography); ≥ +0.003 → build out, else close.
-- **Status:** ✋ **AWAITING USER GO** — do NOT dispatch until instructed (a premature 3-GPU launch was
-stopped by the user 2026-07-08; nothing produced).
-
-### E24 · Token/feature selection — **A (token) + B (field)** — ✅ DONE 2026-07-09 (selection NULL for accuracy) — report: [token-selection/results.md](token-selection/results.md)
-- **Idea:** the "hand-pick the good features so the model learns better" move — decide which parts
-of the input matter, drop the rest, **re-fine-tune** on the reduced input. Upstream & decoupled (a
-*filter*), NOT LTP's in-model learned-threshold pruning (E18, deferred).
-- **Cost discipline — filter, not wrapper:** Phase 0 = score importance **once** (mostly
-training-free on the frozen champion); Phase 1 = one full FT **run per kept-set** (3 epochs, E8a
-recipe — *not* one epoch; A's 4-value k-sweep · B's 3 kept-sets, ×2 for from-scratch+recovery). No 2ⁿ subset
-search / "delete-until-it-improves".
-- **Methods (this entry = A + B):** **A** attention/saliency token-select + top-k refit (conservative
-**k∈{90,80,70,60}%**, start high & descend) · **B** field-level selection (occlusion over ~19
-serialized fields; reuses `serialize()` flags). **C** (rationale) and **D** (heuristic controls) are
-**DEFERRED** — see Deferred → E24 (C, D).
-- **Baseline / scorer:** granite **champion E8a+LS richargs** (`submit_0707_granite_ls.zip` = `…e8a_ls_richargs_full/checkpoint-8314`), full_data · LS · full vocab = **0.7803 uncal** on the clean **3.5k held-out** slice (seed 42; not leaked — `--full_data` holds it out). Phase-1 retrains reuse this recipe/seed → same slice.
-- **Metric (invariant):** uncal macro-F1 + kept-fraction + ms/sample; NO calibration. Every method
-**re-fine-tunes** (training-free already craters: −0.05 @27% dropped, −0.27 @42%).
-- **Phase-1 training (do both):** warm-start **recovery-FT** (deployment model) + **from-scratch**
-from granite base (honest "is the feature set sufficient" test), each on the **exact E8a recipe**
-(richargs · full_data seed42 · LS ε0.1 · full-FT · 3ep · lr2e-5 · max_len512) — only the input is
-reduced; the gap between the two = the signal. granite FT is cheap so both run.
-- **Sequencing (A+B):** Phase 1 **A** (token-select) → Phase 2 **B** (field-select; Phase-0 free,
-runs up front). **D** (controls) and **C** (rationale) deferred until A/B show slack.
-- **For the autonomous loop (user OK 2026-07-09):** run A+B on **GPU 1 or 3 only** (0/2 = `coreset`,
-DO NOT touch); detached (`nohup`) launches only. **Prereq:** the Phase-0 scan must have written
-`experiments/token-selection/artifacts/a_token_scores.npz` (then build the k-files from it).
-**Canary gate (NO separate smoke — user 2026-07-09):** launch ONE real config first —
-`attn k90 recover` — and confirm it trains + logs a `val_macro_f1` and exits 0 **before** fanning out
-the rest; if it errors, STOP and fix (a hook bug errors at dataset-build/first-step, so this costs
-~1 min, not real compute). Then follow **How to run** in results.md; `--reduced_ids` files come from
-the full scan.
-- **Status:** 🟢 READY — loop-authorized (A+B, GPU 1/3, canary-gated). **Result:** —
-
 ### Backlog / housekeeping
 - rdrop (disc task 0) never finished on the old box — superseded in spirit by supcon's
   regression; rerun on a spare GPU only if idle capacity exists.
@@ -341,17 +293,6 @@ even length-sort).
 - **Measure:** ms/sample + total projected 30k time on a 3090 synthetic
 load, before/after, per model (granite/qwen3/12L variants).
 - **Payoff:** Lands in every future zip; also widens the time margin the translation route needs.
-
-### E24 (C, D) · Rationale extraction + heuristic controls — 🕐 DEFERRED (user 2026-07-09) — part of token-selection
-- **Why deferred:** keep the active queue focused on **A** (token-select) + **B** (field-select),
-the implemented methods. C and D wait until A/B produce a result worth building on.
-- **D · heuristic / random controls** — random-drop · stopword/low-TF-IDF · truncate, at A's chosen
-keep-ratio, on the same `--reduced_ids` harness. A's **control** (proves selection beats trivial
-cuts). Revive once A has a keep-ratio worth contextualizing. Cheap — just another selection rule.
-- **C · rationale extraction** — joint selector–predictor (HardKuma / REINFORCE), the *embedded*
-method: highest ceiling but the same non-differentiable-selection instability that stalled LTP.
-**Gated** — only if A or B shows real prunable slack.
-- **Status:** 🕐 DEFERRED. **Result:** —
 
 ### E18 · LTP token pruning — 🕐 DEFERRED (user 2026-07-08) — 1 GPU, ~4h
 - **Why deferred:** user call 2026-07-08 — the LTP work **as scoped is not what was intended**
@@ -664,6 +605,25 @@ python -m src.finetune --model ibm-granite/granite-embedding-311m-multilingual-r
 - **Result:** **raw val macro-F1 0.7731** (full_data 3.5k slice) — **−0.0072 vs richargs 0.7803**. (Log also prints calibrated 0.7823 — ignored, no-cal invariant.) ckpt `output/pat/ft_ibm-granite__..._granite_names_ls_full/checkpoint-12468`; CSV `output/pat/ft_results_granite_names.csv`.
 - **Status:** ❌ **DONE — hypothesis disproven.** His serialization scores BELOW our richargs in our pipeline → serialization format is NOT the source of his SOTA edge; richargs stays our format. His advantage lives elsewhere (backbone recipe / data folding / hparams / eval slice). No figure (single-number A/B; can add a 2-bar if wanted).
 
+### E22 · Coreset — drop-noisy data selection — ✅ DONE 2026-07-09 (screen win, champion confirm ❌) — report: [coreset/results.md](coreset/results.md)
+- **Objective:** raise **macro-F1** by retraining granite on a *cleaned* subset (drop mislabeled /
+unlearnable samples) — NOT reduce compute. Drop-noisy / data-centric denoising family, **not**
+keep-hard coreset.
+- **§1 suitability (done, no training):** ~**6% two-model consensus mislabels** (removable — better
+than pure ambiguity would predict), BUT **40% of errors are low-confidence ambiguity** and errors
+concentrate on synonymous file-ops (read/list/glob/grep, irreducible). → **surgical denoise only**;
+the blanket "drop everything the model gets wrong" is predicted to **LOWER** macro-F1 (starves rare
+classes). Figure: [suitability](coreset/figures/suitability_error_profile.png).
+- **Methods (Group 1+2 — implemented + smoke-tested, NOT run):** C1 cleanlab (k-fold OOF) · C2 AUM ·
+C4 cartography · C5 forgetting · C6 EL2N · C7 PVI → each emits a keep-set → `finetune.py
+--keep_indices` retrain. Plumbing added: `--keep_indices` + `--log_dynamics`. C3 CHE deferred;
+Group 3 (co-teaching / DivideMix) gated on a proven denoise gain.
+- **Baseline:** granite CE full-56k, v1, standard split = **0.7458** (E9 control).
+- **Read-out:** each keep-set retrain's macro-F1 + **per-class F1 on the rare/confusable classes** vs
+0.7458. Decisive first read = C1 (cleanlab) + C4 (cartography); ≥ +0.003 → build out, else close.
+- **Status:** ✋ **AWAITING USER GO** — do NOT dispatch until instructed (a premature 3-GPU launch was
+stopped by the user 2026-07-08; nothing produced).
+
 ### E23 · Test-time adaptation on the frozen granite champion — ✅ DONE — WIN (granite+TTA lr1e-3 = 0.77931 new LB SOTA)
 - **Hypothesis:** the hidden test set is mildly shifted from train (the E8 CV→LB reversal hints at it); unsupervised **test-time adaptation** of the frozen `granite_ls` champion's normalization layers — on the test set itself, no labels, no retraining — corrects part of that shift at inference.
 - **Method (in `script.py` only; champion weights reused verbatim):** before predicting, run SHOT / information-maximization — minimize mean per-sample entropy **+** maximize batch-marginal entropy (anti-collapse) — with Adam on the **45 encoder LayerNorm affines only** (`attn_norm`/`mlp_norm`/`embeddings.norm`/`final_norm`; head + classifier **frozen**), over a **bounded 2048-row strided sample** of the test set, 1 pass, **fp32** (autocast off) + gradient-checkpointed. Prediction pass unchanged from the champion (autocast). `TTA_ENABLE=0` reproduces the champion byte-for-byte. Aggressiveness = `TTA_LR`.
@@ -682,6 +642,59 @@ cp submissions/submit_0707_granite_ls.zip <tmp>/base.zip
 ```
 - **Result (LB, submitted 07-08) vs granite_ls 0.77738:** gentle lr2e-4 **0.77871 (+0.00133)** · moderate lr1e-3 **0.77931 (+0.00193)** 🥇 · aggressive lr3e-3 **0.77300 (−0.00438)**. **Best = lr1e-3 → 0.77931, a hair past prior SOTA qwen3_ls 0.77921.** Optimum is **intermediate** (gentle under-corrects, aggressive over-sharpens past the correction). **Local→LB flip:** all three were NEGATIVE on the clean no-shift slice but gentle+moderate went POSITIVE on the real test → confirms exploitable test-shift; the clean slice only measures the no-shift floor (trust the LB). **Timing ~7:43–7:51** — TTA added **~2:40** on the eval server (local-3090 estimate was ~40s; server-timing-from-local is unreliable, per invariant), safe on granite's 5:06 base but would blow the 10-min cliff on qwen3_ls (9:18) → validated shipping TTA on granite, not qwen3.
 - **Status:** ✅ **DONE — WIN.** granite+TTA (lr1e-3) = new LB SOTA **0.77931**. The +0.0001 margin over qwen3_ls is within LB noise; the robust claim is **TTA adds +0.0013–0.0019 to granite**. Zips = SUBMISSIONS.md rows 11–13. ⚠️ no figure (a dose-response `lr ↔ ΔF1_LB` plot with the baseline line would fit — offered). Memory: [[tta-works-granite-sota]].
+
+### E24 · Token/feature selection — **A (token) + B (field)** — ✅ DONE 2026-07-09 (selection NULL for accuracy) — report: [token-selection/results.md](token-selection/results.md)
+- **Idea:** the "hand-pick the good features so the model learns better" move — decide which parts
+of the input matter, drop the rest, **re-fine-tune** on the reduced input. Upstream & decoupled (a
+*filter*), NOT LTP's in-model learned-threshold pruning (E18, deferred).
+- **Cost discipline — filter, not wrapper:** Phase 0 = score importance **once** (mostly
+training-free on the frozen champion); Phase 1 = one full FT **run per kept-set** (3 epochs, E8a
+recipe — *not* one epoch; A's 4-value k-sweep · B's 3 kept-sets, ×2 for from-scratch+recovery). No 2ⁿ subset
+search / "delete-until-it-improves".
+- **Methods (this entry = A + B):** **A** attention/saliency token-select + top-k refit (conservative
+**k∈{90,80,70,60}%**, start high & descend) · **B** field-level selection (occlusion over ~19
+serialized fields; reuses `serialize()` flags). **C** (rationale) and **D** (heuristic controls) are
+**DEFERRED** — see Deferred → E24 (C, D).
+- **Baseline / scorer:** granite **champion E8a+LS richargs** (`submit_0707_granite_ls.zip` = `…e8a_ls_richargs_full/checkpoint-8314`), full_data · LS · full vocab = **0.7803 uncal** on the clean **3.5k held-out** slice (seed 42; not leaked — `--full_data` holds it out). Phase-1 retrains reuse this recipe/seed → same slice.
+- **Metric (invariant):** uncal macro-F1 + kept-fraction + ms/sample; NO calibration. Every method
+**re-fine-tunes** (training-free already craters: −0.05 @27% dropped, −0.27 @42%).
+- **Phase-1 training (do both):** warm-start **recovery-FT** (deployment model) + **from-scratch**
+from granite base (honest "is the feature set sufficient" test), each on the **exact E8a recipe**
+(richargs · full_data seed42 · LS ε0.1 · full-FT · 3ep · lr2e-5 · max_len512) — only the input is
+reduced; the gap between the two = the signal. granite FT is cheap so both run.
+- **Sequencing (A+B):** Phase 1 **A** (token-select) → Phase 2 **B** (field-select; Phase-0 free,
+runs up front). **D** (controls) and **C** (rationale) deferred until A/B show slack.
+- **For the autonomous loop (user OK 2026-07-09):** run A+B on **GPU 1 or 3 only** (0/2 = `coreset`,
+DO NOT touch); detached (`nohup`) launches only. **Prereq:** the Phase-0 scan must have written
+`experiments/token-selection/artifacts/a_token_scores.npz` (then build the k-files from it).
+**Canary gate (NO separate smoke — user 2026-07-09):** launch ONE real config first —
+`attn k90 recover` — and confirm it trains + logs a `val_macro_f1` and exits 0 **before** fanning out
+the rest; if it errors, STOP and fix (a hook bug errors at dataset-build/first-step, so this costs
+~1 min, not real compute). Then follow **How to run** in results.md; `--reduced_ids` files come from
+the full scan.
+- **Status:** 🟢 READY — loop-authorized (A+B, GPU 1/3, canary-gated). **Result:** —
+
+### E24 (C, D) · Rationale extraction + heuristic controls — ❌ CLOSED 2026-07-09 — gated on A/B showing slack; none found (see [token-selection/results.md](token-selection/results.md))
+- **Why deferred:** keep the active queue focused on **A** (token-select) + **B** (field-select),
+the implemented methods. C and D wait until A/B produce a result worth building on.
+- **D · heuristic / random controls** — random-drop · stopword/low-TF-IDF · truncate, at A's chosen
+keep-ratio, on the same `--reduced_ids` harness. A's **control** (proves selection beats trivial
+cuts). Revive once A has a keep-ratio worth contextualizing. Cheap — just another selection rule.
+- **C · rationale extraction** — joint selector–predictor (HardKuma / REINFORCE), the *embedded*
+method: highest ceiling but the same non-differentiable-selection instability that stalled LTP.
+**Gated** — only if A or B shows real prunable slack.
+- **Status:** 🕐 DEFERRED. **Result:** —
+
+### E25 · Teammate-recipe repro on our pipeline — 🏃 RUNNING (launched 2026-07-09)
+- **Why:** his relayed claim "richmeta > richargs" plus his full training code (`build_nb.py`, `teammate_work/miseo_koen_v2/`) arriving lets us finally separate *recipe* from *pipeline*. His recipe differs from our champion on exactly four axes: **names serialization · plain CE (no LS) · warmup_ratio 0.1 (ours 0.05) · fp16 (ours bf16)**. Everything else already matches (granite-311m-r2, lr 2e-5, 3ep, eff. batch 16, wd 0.01, max_len 512, hist 12, best-epoch on val macro-F1).
+- **Arms (both `--full_data`, per user — his latest runs train-on-all, so no k-fold; `--session_fold` implemented but unused here):**
+  - **E25a repro:** all four axes at HIS values → should land near his level if our pipeline faithfully implements his recipe (expected ≈ E21 0.7731 − LS effect ~0.011 [E9] ≈ 0.76x on the slice).
+  - **E25b stack:** his values + our two levers back (**LS ε=0.1 + bf16**).
+- **Read-outs (same 3.5k slice → deltas trustworthy):** ① E25b−E25a = LS+bf16 gain ON his recipe; ② E25b vs **E21 0.7731** = warmup 0.1↔0.05 as the ONLY differing axis; ③ E25a vs anchors = repro sanity. His OOF numbers (leak-free 80%-data folds) are NOT slice-comparable — directional only.
+- **Arm c (added at launch, user 07-09):** = E25b but `--serialize richmeta` — the requested "our serialization + his history/meta path style" IS the existing richmeta variant (full history paths kept, open-files basenamed — path semantics identical to his names; only packaging differs). Direct probe of his "richmeta > richargs" claim. Existing variants untouched: richmeta/richargs/v1 verified byte-identical to git HEAD (0/70000 each).
+- **Commands:** `bash sbatch/e25_miseo_recipe.sh a|b|c <gpu>` (logs `sbatch/logs/e25{a,b,c}_*.out`).
+- **New plumbing (verified on real data, no training run):** `--warmup_ratio` · `--precision auto|bf16|fp16` · `--session_fold`/`--session_splits` (StratifiedGroupKFold by session, leakage asserted 0; fold0 = 56k/14k) · serialization variants **`names_files`** and **`richfiles`** (his HISTPATH="files" surgical arg-stripping: basenames only read/edit/write.path + run_tests/lint.target, preserves list_directory.path + grep scope; names byte-identity re-verified 0 mismatch). Candidate follow-up arm for the richmeta-vs-richargs question.
+- **Status:** 🏃 **RUNNING — user-approved launch 2026-07-09 16:25 (a GPU0 · b GPU1) + 16:29 (c GPU2)**; detached nohup (PPID 1, survives session disconnect), ~1.5h ETA each. Plan doc: [miseo-recipe/results.md](miseo-recipe/results.md).
 
 ## Results log
 (append: date · experiment · branch · key numbers · memory file)

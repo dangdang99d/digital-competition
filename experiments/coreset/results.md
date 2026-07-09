@@ -17,6 +17,7 @@ full 56k) **0.7498** · deployment champion E8a+LS richargs full_data **0.7803**
 | §2 | screen: 6 scorers → 10 keep-set retrains (granite v1+CE, standard split) | ✅ | **pvi06 +0.0063 · aum06 +0.0048**; cleanlab/forget ~flat; **cart/el2n hurt, worse when aggressive** | 🟢 surgical denoise CONFIRMED on the screen recipe |
 | §3 | gate analysis — can the denoised model rule out hard at inference? | ✅ | AUROC(MSP→hard) 0.830→0.835; win is easy-tier F1 +0.010 | gate **inherited, not improved** — no routing lever |
 | §4 | champion confirm — pvi06/aum06 keep-sets × E8a+LS richargs full_data | ✅ | **pvi06 0.7700 (−0.0103) · aum06 0.7766 (−0.0037)** vs champion 0.7803 | ❌ **does NOT transfer to the champion recipe** (3.5k held-out; LB untested) |
+| §5 | group-level confusion — TP/FP/TN/FN on the 4 action groups | ✅ | group acc **0.989–0.995** (class acc ~0.75); containment P(true∈pred group \| class wrong) **0.96–0.98** | error is almost entirely **intra-group** — group prediction is near-solved, lever = intra-group disambiguation |
 | — | Group 3 loops (co-teaching / MentorNet / DivideMix / SELFIE) | ⛔ | never run | gated on a big denoise gain — not met |
 
 ## §1 · Suitability probe (no training; qwen3 champion val-OOF + hist0 as 2nd model)
@@ -52,10 +53,20 @@ full 56k) **0.7498** · deployment champion E8a+LS richargs full_data **0.7803**
 
 - **Model:** granite-311m, v1@512, CE, standard split (56k train / 14k val), seed 42.
 - **Baseline:** in-pipeline `coreset_base` = **0.7498**.
-- **Change:** drop the scorer's noisiest 6%/15% of train (`--keep_indices`), retrain identically.
-  Scorers: **C1 cleanlab** (4-fold OOF self-confidence) · **C2 AUM** (mean margin) · **C4
-  cartography drop-hard** (lo-conf ∧ lo-var; protect hi-var) · **C5 forgetting** (never-learned) ·
-  **C6 EL2N** (early-epoch error norm) · **C7 PVI** (OOF gold-prob vs class prior, bits).
+- **Change:** retrain identically on a filtered train set (`--keep_indices`); 10 keep-sets =
+  6 scorers × the drop rules below (no C3 — number never assigned). Two signal sources:
+  **4-fold OOF** (train on 3 folds, score the held-out fold — out-of-sample, so it also catches
+  noise the model *memorized*) and **training dynamics** (per-epoch train softmax from one
+  instrumented baseline run, `--log_dynamics`).
+
+  | scorer → keep-set(s) | signal | score per train row | drop rule |
+  |---|---|---|---|
+  | C1 confident learning → `cl` | OOF | cleanlab `find_label_issues` on (labels, OOF probs) — flags rows whose given label is inconsistent with the confident joint (Northcutt'21) | drop every flagged row (20.2%) |
+  | C2 AUM → `aum06/15` | dynamics | margin = mean over epochs of p_gold − max other-class prob (Pleiss'20); low/negative = the label fights the gradient signal all training long | drop lowest 6% / 15% |
+  | C4 cartography → `cart06/15` | dynamics | confidence = mean_e p_gold · variability = std_e p_gold (Swayamdipta'20); hardness = (1−conf)·1[var<median] — cuts the hard-to-learn quadrant, protects hi-var ambiguous | drop highest-hardness 6% / 15% |
+  | C5 forgetting → `forget` | dynamics | never-learned = predicted correctly in 0 epochs (Toneva'19) | drop all never-learned (10.1%) |
+  | C6 EL2N → `el2n06/15` | dynamics | ‖softmax − onehot‖₂ at the first epoch (Paul'21) — error norm before memorization sets in | drop highest 6% / 15% |
+  | C7 PVI → `pvi06/15` | OOF (reuses C1's) | log₂ p_OOF(gold\|x) − log₂ prior(gold), bits (Ethayarajh'22); negative = the input makes the gold label *less* likely than prior-guessing ≈ unlearnable/mislabeled | drop lowest (most negative) 6% / 15% |
 - **Result** (raw val macro-F1; Δ vs 0.7498; full per-tier/per-class tables in
   [eval_results.md](eval_results.md); where each method cuts:
   [datamap_drops](figures/datamap_drops.png) · [datamap_pvi](figures/datamap_pvi.png) ·
@@ -129,12 +140,72 @@ full 56k) **0.7498** · deployment champion E8a+LS richargs full_data **0.7803**
   justify. If the line is revisited: rescore (PVI k-fold OOF) *under the champion recipe itself*,
   or test drop-vs-LS interaction (pvi06 × CE full_data).
 
+## §5 · Group-level confusion — TP/FP/TN/FN on the 4 action groups (user ask 2026-07-09)
+
+- **What:** the 14 classes form 4 confusion groups (`src/data.ACTION_GROUPS`: **explore** =
+  read_file/grep_search/list_directory/glob_pattern · **edit** = edit_file/write_file/apply_patch ·
+  **execute** = run_bash/run_tests/lint_or_typecheck · **noncode** = ask_user/plan_task/
+  web_search/respond_only). Hypothesis: even when the class prediction is wrong, the true label
+  sits in the *predicted group* — so the residual error is intra-group disambiguation.
+  `group_confusion.py` on the cached §3 val logits + qwen3 ruler (14k val, raw, NO calibration).
+- **Result — class vs group accuracy** (containment = P(pred group == true group | class wrong)):
+
+  | model | class acc | group acc | class-err rate | containment |
+  |---|---|---|---|---|
+  | qwen3 (champion ruler) | 0.7653 | 0.9931 | 0.2347 | 0.9705 |
+  | base | 0.7545 | **0.9946** | 0.2455 | **0.9779** |
+  | pvi06 | 0.7581 | 0.9913 | 0.2419 | 0.9640 |
+  | aum06 | 0.7578 | 0.9920 | 0.2422 | 0.9670 |
+  | cl | 0.7566 | 0.9897 | 0.2434 | 0.9577 |
+  | cart15 | 0.7492 | 0.9928 | 0.2508 | 0.9712 |
+
+- **Group-level one-vs-rest TP/FP/TN/FN** (predicted group vs true group; group sizes:
+  explore 5756 · edit 3495 · execute 2383 · noncode 2366):
+
+  | model | group | TP | FP | TN | FN | precision | recall | ovr acc |
+  |---|---|---|---|---|---|---|---|---|
+  | qwen3 (ruler) | explore | 5719 | 37 | 8207 | 37 | 0.9936 | 0.9936 | 0.9947 |
+  | qwen3 (ruler) | edit | 3483 | 22 | 10483 | 12 | 0.9937 | 0.9966 | 0.9976 |
+  | qwen3 (ruler) | execute | 2356 | 24 | 11593 | 27 | 0.9899 | 0.9887 | 0.9964 |
+  | qwen3 (ruler) | noncode | 2345 | 14 | 11620 | 21 | 0.9941 | 0.9911 | 0.9975 |
+  | base | explore | 5729 | 28 | 8216 | 27 | 0.9951 | 0.9953 | 0.9961 |
+  | base | edit | 3483 | 15 | 10490 | 12 | 0.9957 | 0.9966 | 0.9981 |
+  | base | execute | 2360 | 11 | 11606 | 23 | 0.9954 | 0.9903 | 0.9976 |
+  | base | noncode | 2352 | 22 | 11612 | 14 | 0.9907 | 0.9941 | 0.9974 |
+  | pvi06 | explore | 5699 | 37 | 8207 | 57 | 0.9935 | 0.9901 | 0.9933 |
+  | pvi06 | edit | 3483 | 23 | 10482 | 12 | 0.9934 | 0.9966 | 0.9975 |
+  | pvi06 | execute | 2357 | 44 | 11573 | 26 | 0.9817 | 0.9891 | 0.9950 |
+  | pvi06 | noncode | 2339 | 18 | 11616 | 27 | 0.9924 | 0.9886 | 0.9968 |
+  | aum06 | explore | 5700 | 26 | 8218 | 56 | 0.9955 | 0.9903 | 0.9941 |
+  | aum06 | edit | 3483 | 23 | 10482 | 12 | 0.9934 | 0.9966 | 0.9975 |
+  | aum06 | execute | 2356 | 35 | 11582 | 27 | 0.9854 | 0.9887 | 0.9956 |
+  | aum06 | noncode | 2349 | 28 | 11606 | 17 | 0.9882 | 0.9928 | 0.9968 |
+  | cl | explore | 5703 | 62 | 8182 | 53 | 0.9892 | 0.9908 | 0.9918 |
+  | cl | edit | 3484 | 28 | 10477 | 11 | 0.9920 | 0.9969 | 0.9972 |
+  | cl | execute | 2345 | 32 | 11585 | 38 | 0.9865 | 0.9841 | 0.9950 |
+  | cl | noncode | 2324 | 22 | 11612 | 42 | 0.9906 | 0.9822 | 0.9954 |
+  | cart15 | explore | 5726 | 51 | 8193 | 30 | 0.9912 | 0.9948 | 0.9942 |
+  | cart15 | edit | 3486 | 14 | 10491 | 9 | 0.9960 | 0.9974 | 0.9984 |
+  | cart15 | execute | 2341 | 17 | 11600 | 42 | 0.9928 | 0.9824 | 0.9958 |
+  | cart15 | noncode | 2346 | 19 | 11615 | 20 | 0.9920 | 0.9915 | 0.9972 |
+
+- **Verdict:** group prediction is **near-solved for every model** — group acc 0.989–0.995,
+  per-group precision/recall ≥0.98, and 96–98% of class errors keep the true label inside the
+  predicted group (val estimate, above the 92% error-analysis note in `src/data.py`). The whole
+  ~24% class-error mass is intra-group disambiguation, dominated by the explore wing (§1: the
+  synonymous file-ops). Implications: (a) a group-conditional / hierarchical head loses almost
+  nothing at the group stage — the ceiling is intra-group; (b) any inference-time routing can
+  trust the predicted group even at low MSP (complements §3, where MSP could not flag mislabels);
+  (c) macro-F1 gains must come from separating explore-wing synonyms, not from group errors.
+  4×4 group-confusion matrices per model: `group_confusion.py` output.
+
 ## Assets & reproduce
 
 - Scripts (`experiments/coreset/`): `confident_learning.py` (C1, k-fold OOF, `--folds/--merge`
   for multi-GPU) · `score_dynamics.py` (C2/C4/C5/C6 from the dynamics npz) · `pvi.py` (C7, reuses
   C1's OOF) · `coreset_eval.py` (per-tier/per-class eval → `eval_results.md`) · `gate_analysis.py`
-  · `plot_drop_maps.py` · orchestrators `run_coreset*.py` (GPU-slot queue over the DAG).
+  · `group_confusion.py` (§5, CPU-only on cached logits) · `plot_drop_maps.py` · orchestrators
+  `run_coreset*.py` (GPU-slot queue over the DAG).
 - Plumbing (`src/finetune.py`): `--keep_indices <npy>` (absolute-index train filter) ·
   `--log_dynamics <npz>` (per-epoch train softmax callback).
 - Caches: `analysis/cache/coreset_dyn_granite.npz` (dynamics E×N×C) · `coreset_oof_granite.npz`
