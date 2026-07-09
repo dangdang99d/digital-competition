@@ -17,18 +17,23 @@ Baselines to beat: **LB 0.77931** (granite+TTA, current SOTA) · 0.77921 (qwen3_
 | zip size | **≤ 1 GB** | granite fp32 846M · granite fp16 539M · qwen3_ls (fp16+vocab-prune) 830M · qwen3 depth14 443M |
 | inference | **≤ 10 min** / 30k rows | granite fp32 **5:06** · qwen3_ls **9:18** · TTA adds **+2:40** · granite fp16 / qwen3-depth14: **unmeasured** |
 
-Feasibility math (why most ensembles are dead on arrival):
-- **anything containing full qwen3 is DEAD** — 9:18 alone; no second forward fits.
-- **2× granite fp32 ≈ 10:12 → over.** The viable shape is **2× granite fp16** (time unmeasured
-  but bounded well under 2× 5:06; first such submission is the measurement) — **size then binds**:
-  2× 539M zips ≈ 1078M > 1GB → **needs granite vocab-prune** (embeddings = ~62% of granite-311m;
-  prune → est. ~250–350M/model → pair ≈ 600–700M ✓; prune infra exists, `src/prune_vocab.py`,
+Feasibility math (why most ensembles are dead on arrival) — user-confirmed 2026-07-09:
+- **anything containing full qwen3 is DEAD** — 9:18 alone; no second forward fits (user agreed).
+- **2× granite fp32 ≈ 10:12 → over.** The viable shape is **2× granite fp16 + vocab-prune**.
+  ⚠️ fp16, NOT bf16: the eval T4 is Turing — no bf16 support (bf16 is our 3090 *training*
+  format only). fp16 granite is parity-validated (`submit_0707_granite_ls_fp16.zip`, 539M).
+  Size: 2× 539M zips ≈ 1078M > 1GB → **granite vocab-prune required** (embeddings = ~62% of
+  granite-311m; prune → est. ~250–350M/model → pair ≈ 600–700M ✓; infra `src/prune_vocab.py`,
   tokenizer+remap reusable per backbone+variant per memory).
+- **Batch-size lever (user note):** submission inference under-utilizes the T4 — raise the eval
+  batch size (fp16 @512 on 16GB has ample headroom) + keep length-sorted batching. Free speed
+  for the second forward pass; validate locally for OOM only (time is server-measured).
 - **weight-space soup / SWA is constraint-FREE** (one merged model = champion cost: 5:06/846M) —
   but E12 showed soup members MUST share init (different-init soup cratered −0.056); a proper
   soup arm needs 2–3 new shared-init LR-diverse trainings (~1.5 GPU-h each). Optional arm.
-- **TTA stack on an ensemble** only if the measured pair time ≤ ~7:00 (TTA +2:40 → ≤ 9:40). Defer
-  to after the first ensemble timing datum.
+- **TTA: excluded from E26** (user 2026-07-09) — it adapts each member separately (+2:40 *per
+  model*), and a two-forward budget has no slack; granite+TTA (0.77931) stays a separate
+  single-model submission line, and E26 must beat it to matter.
 
 ## Plan
 
