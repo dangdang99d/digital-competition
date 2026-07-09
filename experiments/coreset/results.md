@@ -230,6 +230,8 @@ Prior verify: plumbing (`--keep_indices`/`--log_dynamics`), scorers, transformer
 | champ | pvi06+aum06 × champion recipe (E8a+LS richargs full_data) | 🏃 | launched 2026-07-09 GPU2/3 (`e22_*_champion`) | → held-out check, then submit |
 
 ### Retrain results (raw uncal val Macro-F1; granite v1, standard split; run 2026-07-09)
+Where each method cuts, on the data map: [datamap_drops](figures/datamap_drops.png) ·
+[datamap_pvi](figures/datamap_pvi.png) (`plot_drop_maps.py`).
 In-pipeline **baseline `coreset_base` (full 56k) = 0.7498** (historical E9 control 0.7458). Δ vs 0.7498.
 
 | keep-set (method) | drop | val Macro-F1 | Δ base | verdict |
