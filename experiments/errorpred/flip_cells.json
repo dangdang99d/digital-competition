@@ -1,0 +1,62 @@
+{
+ "min_n": 20,
+ "fitted_on": "e9_granite_ls val14k",
+ "classes": [
+  "read_file",
+  "grep_search",
+  "list_directory",
+  "glob_pattern",
+  "edit_file",
+  "write_file",
+  "apply_patch",
+  "run_bash",
+  "run_tests",
+  "lint_or_typecheck",
+  "ask_user",
+  "plan_task",
+  "web_search",
+  "respond_only"
+ ],
+ "cells": [
+  {
+   "rank1": "read",
+   "rank2": "lsdir",
+   "decile": 0
+  },
+  {
+   "rank1": "grep",
+   "rank2": "read",
+   "decile": 0
+  },
+  {
+   "rank1": "grep",
+   "rank2": "read",
+   "decile": 1
+  },
+  {
+   "rank1": "grep",
+   "rank2": "lsdir",
+   "decile": 0
+  },
+  {
+   "rank1": "grep",
+   "rank2": "glob",
+   "decile": 1
+  },
+  {
+   "rank1": "bash",
+   "rank2": "tests",
+   "decile": 1
+  },
+  {
+   "rank1": "ask",
+   "rank2": "plan",
+   "decile": 1
+  },
+  {
+   "rank1": "plan",
+   "rank2": "ask",
+   "decile": 1
+  }
+ ]
+}

@@ -287,8 +287,22 @@ submission conservative (2 members). LB judges (3.5k slice mis-ranks — E8 less
   36.4% > swap-to-rank-2 32.3% — any exploit must ADD an independent signal, not permute ranks.
 - **Phase 1b (✅ `rank_policy.py`):** best-rank policy per (decile × predicted-class) cell —
   in-sample 6/140 cells prefer rank-2 (+0.0021 acc) but **cross-fitted NEGATIVE (−0.0020 acc,
-  −0.0013 mF1)**; cells don't replicate across halves → rank permutation from the model's own
-  outputs is CLOSED (third confirmation after E6 + blind swap).
+  −0.0013 mF1)**; cells don't replicate across halves → (decile × r1) conditioning dead.
+- **Phase 1c (✅ `pair_rank_stats.py` + `pair_policy_check.py`):** condition on (r1, r2, decile)
+  → **first replicated observable-only flip cells**: unconfident read/grep with **lsdir at
+  rank-2** → lsdir ~2× more likely true (replicates 5/7 and 5/6 models; prior-dominance bias).
+  Cross-fitted swap policy **survives**: ΔmF1 +0.0021 granite_ls (positive all 5 seeds) /
+  +0.0021 base / +0.0020 qwen3 (pvi06 −0.001, cl ≈0).
+- **Phase 1d (✅):** full-fit 8-cell rule (`flip_cells.json`) → honest transfer to the
+  deployment champion **e8a_ls +0.0012 mF1** (3.5k slice; e8b_ls +0.0007); group-restricted-r2
+  variant (user ask) = no advantage (raw r2 already 98–99% in-group at low deciles). LB-probe
+  zip prepared (champion + rule as discrete post-decision); ⏸ parity run pending GPU clearance
+  → `submit_0710_granite_fliprule.zip`.
+- **Phase 2-B (✅ `assessor_b.py`): CROSS-MODEL ASSESSOR BREAKS THE E20 CEILING —
+  AUROC 0.8655 vs MSP 0.8425** (5-fold CV; own-logit features alone tie MSP 0.8422). Signal =
+  6 helpers' MSP/agreement/KL. Error capture @20% budget: 53.1% vs 49.8%. Needs ≥2 models at
+  inference (granite pair fits 10-min per E26). Next: kNN-difficulty features (GPU) · assessor
+  on deployment model · wire assessor→action (selective TTA/ensemble/flip).
 - **Phase 2 (literature, ✅ 3-agent survey 2026-07-09):** post-hoc scores confirmed dead vs MSP
   (FD-Shifts et al.); live candidates = **A** LS-damage audit + p-norm-logit rescue (zero GPU;
   LS ε=0.1 documented to cost 3–9 AUROC pts, free post-hoc fix, ICLR'25) · **B** assessor v2

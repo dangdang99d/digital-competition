@@ -12,6 +12,10 @@ leaderboard). `?` = expected to exist but not yet found in our notes.
 their local-val numbers are raw-logit argmax and are NOT directly comparable to the calibrated zips'
 historical CV.
 
+⚠️ **Filename limit (user, 2026-07-10):** DACON caps the submission filename at **32 characters
+including `.zip`** — several past names exceeded it and needed manual pruning at upload. Name new
+zips ≤32 chars (aim ≤28): shorten the variant tag, keep `submit_MMDD_`.
+
 ## Built (already submitted)
 
 **Two independent kinds of pruning — kept in separate columns:**
@@ -53,6 +57,8 @@ historical CV.
 | E26-B | **2-granite ensemble** is3 + e25c-richmeta (cross-serialization) | granite-311m ×2 | richargs + richmeta · vocab-prune union · fp16 · bs 256 | **no** | **0.7840** ens (3.5k slice) | **559M** | 〃 | — | ✅ **SUBMITTED 07-10 → LB 0.78498** (+0.0057 vs TTA; slice preferred THIS pair 0.7840>0.7832 but LB reversed — slice mis-ranks again). 4:46 |
 | E26-s43 | seed-43 champion-recipe reroll (leak probe) | granite-311m | richargs · full_data **seed 43** · LS · no prune, fp32 | **no** | 0.7758 (its OWN seed-43 slice; 0.7955 on seed-42 slice = LEAK, invalid) | **832M** | ~5:06 (= champion path) | — | ✅ **SUBMITTED 07-10 → LB 0.77427** (below champion 0.77738, ≈ its honest own-split 0.7758) — **leak CONFIRMED**: the 0.7955 slice read was memorization; seed-43 reroll is a slightly weaker model. 5:12 |
 | E26-C | **3-granite ensemble** is3 + e22_aum06 + e25c-richmeta | granite-311m ×3 | richargs ×2 + richmeta · vocab-prune union · fp16 · bs 256 | **no** | **0.7850** ens (3.5k slice) | **836M** | est ~6:45 (3 × measured ~2:15) | — | ✅ **SUBMITTED 07-10 → 🥇 LB 0.78719, NEW SOTA** (+0.0017 vs pair 0.78548; +0.0079 vs TTA). **6:52** (est was ~6:45 — anchor-accurate). 3rd member scaling CONFIRMED; e22_aum06 (solo-failed denoise model) now part of SOTA |
+
+| E27-flip | **granite_ls champion + E27 flip rule** (8-cell rank-2 swap on low-MSP (r1,r2,decile) cells; LB-probe for the rule) | granite-311m | = row 10 zip + rule as discrete post-decision in script.py (raw logits; self-quantile deciles; skip if <500 rows) | **no** | e8a 3.5k slice: 0.7801→**0.7813 (+0.0012)**, 129 swaps | ~846M | ~5:06 (= champion path) | — | ⬆ **BUILT — ready to upload**: `submit_0710_flip.zip`. Validation: flip block byte-matches numpy reference on cached e8a logits (129/129 swaps) + 5-row CPU end-to-end (rule self-skips) + model/serialization untouched from row-10 zip. Read the LB delta vs 0.77738 |
 
 Statuses: 🔨 build zip · ⬆ ready to upload · ✅ submitted · 🏃 still training · 📦 trained, ready to package
 
