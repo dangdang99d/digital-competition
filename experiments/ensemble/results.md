@@ -120,6 +120,22 @@ Speed impact is a T4-throughput question only a real submission measures. Logs:
 | weight-space soup / SWA | 0 | NOT logit-level — needs shared-init retrains (E12); optional arm |
 | distillation (Path 1B) | — | ensemble → single model; the constraint-dissolving variant |
 
+## Path-1B distillation taxonomy (user ask 2026-07-10)
+
+| # | method | knobs | code status | in run set? |
+|---|---|---|---|---|
+| 1 | vanilla response KD (Hinton): α·T²·KL + (1−α)·CE, teacher = uniform prob mean | α, T | ✅ `--distill_from/alpha/T` | ✅ (α .7, T 3) + (α .5, T 2) |
+| 2 | soft-labels-only / label refinery (α=1, T=1 — teacher replaces labels) | — | ✅ same path | ✅ ×1 (E22: ~6% labels noisy → teacher may beat labels) |
+| 3 | born-again control: teacher = champion ALONE | — | ✅ same path | ✅ ×1 — decomposes KD-regularizer vs ensemble-knowledge |
+| 4 | transductive KD: teacher soft-labels `data/test.jsonl`, student trains on train+test (KD-only rows) | mix ratio | 🔨 small finetune.py ext | ⏸ pending user RULES check (semi-supervised on provided data) |
+| 5 | multi-teacher weighted KD | member w | ✅ (weights in teacher build) | only if honest-CV combiner read favors weighting |
+| 6 | feature/attention KD (TinyBERT/MiniLM) | layer maps | ❌ cross-arch + cross-serialization projections | skip |
+| 7 | EnD² (Dirichlet distribution distillation) | — | ❌ | skip — argmax metric only sees the mean |
+| 8 | online DML / noisy-student rounds | — | ❌ | defer — multiplied cost |
+
+Students: FROM-SCRATCH granite champion recipe (E24 recovery-trap lesson) + optional qwen3-student
+arm (1B′, highest ceiling, 9:18 budget). ~1.5 GPU-h per granite student; 4-run set ≈ 6 GPU-h.
+
 ## Results
 
 *(pending Phase 0)*
