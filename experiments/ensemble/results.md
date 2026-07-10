@@ -181,6 +181,7 @@ adds +0.001 as 4th. Ensemble diversity ≠ single-model quality — the screen w
 | **E26-A** is2+estack (richargs pair) | 0.7832 | **0.78548** 🥇 **NEW SOTA** | **+0.0062** | **4:30** |
 | E26-B is3+e25c (cross-serialization) | 0.7840 | 0.78498 | +0.0057 | 4:46 |
 | s43 leak probe (single, fp32) | 0.7955 leaked / 0.7758 honest | 0.77427 | −0.0050 | 5:12 |
+| **E26-C** is3+aum06+e25c trio | 0.7850 | **0.78719** 🥇 **NEW SOTA** | **+0.0079** | **6:52** |
 
 Readings: (1) **ensembling is a step-change**: +0.0081 over the granite champion single — the
 biggest jump since LS; and the slice UNDER-predicted LB (0.7832 → 0.78548) while mis-ordering
@@ -190,7 +191,10 @@ champion (5:06)** — a third member fits both caps (≈840M, ~6:45). (3) **s43 
 LB** (0.77427 < champion 0.77738, ≈ its honest 0.7758): the 0.7955 was memorization; also a
 same-recipe seed reroll ≠ champion (seed luck real). (4) The LB scores validate the whole
 pruned+fp16+dual-serialization pipeline end-to-end (parity gate retroactively moot for these
-two zips; keep it for future builds).
+two zips; keep it for future builds). (5) **Trio (07-10 evening): 3rd member scaling CONFIRMED —
+0.78719 (+0.0017 over pair)**; slice under-predicted again (+0.0022); marginal member cost ≈2:22
+→ a 4th member (~9:14, ~1.1GB) breaks BOTH caps at safe prune margins → trio ≈ the direct-package
+ceiling; further gains go through distillation (path 1B) or smaller members.
 
 ## Reproduce
 
