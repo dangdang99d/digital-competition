@@ -136,9 +136,43 @@ Speed impact is a T4-throughput question only a real submission measures. Logs:
 Students: FROM-SCRATCH granite champion recipe (E24 recovery-trap lesson) + optional qwen3-student
 arm (1B′, highest ceiling, 9:18 budget). ~1.5 GPU-h per granite student; 4-run set ≈ 6 GPU-h.
 
-## Results
+## Results — Phase 0 screen (2026-07-10; 26/34 models cached pre-GPU-crash — all heavy hitters in; missing: a24_anchor, e11_tapt, v1-coreset family, coreset_base)
 
-*(pending Phase 0)*
+Slice = shared 3.5k held-out; noise ±0.003 → the pair options are statistically tied; E8 lesson
+(slice mis-ranks LB, especially cross-backbone) applies to everything below.
+
+**Singles:** champion e8a_ls **0.7801** (✓ replicates 0.7803) — nothing beats it alone.
+
+**Ensembles (soft-uniform):**
+
+| set | members | F1 | Δ champ |
+|---|---|---|---|
+| best pair | e12soup_is3 + e25c_richmeta | **0.7840** | +0.0039 (cross-serialization: richargs+richmeta) |
+| best richargs-only pair | e12soup_is2 + e_stack_tapt_ls | **0.7832** | +0.0031 (single-serialization packaging) |
+| best champion-anchored pair | e8a_ls + e22_aum06 | 0.7820 | +0.0019 |
+| **greedy-4** | e8a_ls + e22_aum06 + e12soup_is3 + e16b_depth11 | **0.7851** | **+0.0050** |
+| greedy4 + qwen3_ls | (teacher candidate) | 0.7834 | qwen3_ls HURTS on slice (but slice under-ranks qwen3 — E8) |
+| greedy4 + e25c / + both | | 0.7840 / 0.7845 | no gain |
+
+**Combiner shoot-out (both member sets): soft-uniform WINS or ties everything.**
+Hard-vote ≈ tied (0.7840/0.7848); logit-mean & geo-mean crater on the greedy set (0.7757 —
+the predicted LS/CE temperature mismatch); rank-mean catastrophic at C=14 (0.4970); **every
+fitted combiner loses its honest 2-fold read** (weighted 0.7821/0.7791, stacking 0.7776/0.7799
+vs uniform 0.7840/0.7851) while its full-slice fit "wins" — textbook overfit, validating the
+no-fitted-weights invariant. **Shipping combiner = uniform mean of softmax.**
+
+**Notable:** greedy picked e22_aum06 SECOND despite its solo failure (−0.004) — denoised-model
+errors decorrelate from the champion's; solo Δ ≠ ensemble value. e16b_depth11 (a pruned model!)
+adds +0.001 as 4th. Ensemble diversity ≠ single-model quality — the screen was worth it.
+
+**Interpretation for the two paths:**
+- **1A pair:** all pair options tied within noise → choose on engineering risk: richargs-only
+  (is2 + e_stack_tapt, 0.7832) ships with the EXISTING script unchanged; the 0.7840 cross-serialization
+  pair needs a per-member-serializer script extension for +0.0008 (noise). Both clear the +0.003 gate.
+- **1B teacher:** greedy-4 (0.7851) is the slice-optimal teacher; qwen3_ls variant (+1h harvest)
+  as an optional second teacher despite the slice read, since the slice provably under-ranks qwen3 on LB.
+
+*(execution blocked on host-side GPU fix; 8 models can still be appended to the pool after)*
 
 ## Reproduce
 
