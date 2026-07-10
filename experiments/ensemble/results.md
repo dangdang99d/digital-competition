@@ -106,6 +106,20 @@ MB/sample) should take bs 256 — relevant only if the depth-14 pair idea ever e
 Speed impact is a T4-throughput question only a real submission measures. Logs:
 `sbatch/logs/e26_bs_sweep{,_qwen}.log`.
 
+## Combiner taxonomy — ALL cheap ones evaluated (user 2026-07-10; `combiners.py`, CPU over cached slice logits)
+
+| combiner | fitted params | note |
+|---|---|---|
+| **soft-uniform** (mean of member softmax) | 0 | the DEFAULT (ships unless beaten honestly); prob-space neutralizes LS-vs-CE logit temperature |
+| logit-mean | 0 | scale-sensitive: implicitly overweights sharp (CE) members |
+| geo-mean (product of experts) | 0 | punishes any member's low prob — stricter consensus |
+| hard-vote (majority) | 0 | discards confidence; ties broken by soft-uniform |
+| rank-mean | 0 | scale-free; coarse at C=14 |
+| weighted prob mean ⚠️ | M | fit on slice = calibration-adjacent + E8 mis-rank risk → reported as 2-fold honest CV **and** full-slice upper bound; shipping it needs explicit user sign-off |
+| stacking (LR on member probs) ⚠️ | M·C·C | max capacity, same objections; 2-fold honest CV only |
+| weight-space soup / SWA | 0 | NOT logit-level — needs shared-init retrains (E12); optional arm |
+| distillation (Path 1B) | — | ensemble → single model; the constraint-dissolving variant |
+
 ## Results
 
 *(pending Phase 0)*
