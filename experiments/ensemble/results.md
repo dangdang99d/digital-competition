@@ -76,6 +76,36 @@ field-dropped), depth (pruned), and backbone (qwen3-depth14). The screen's disag
 tells us which axes actually decorrelate errors; §5 of coreset/results.md (errors ~all
 intra-group) predicts serialization/recipe diversity matters more than backbone.
 
+## VRAM / batch-size sweep (measured 2026-07-10, RTX 3090; allocation bytes are GPU-independent → valid for T4)
+
+Worst-case inputs (every row padded to 512). T4 allocator budget taken as **13.5 GiB**
+(16 GB − CUDA context − margin). Current shipped zips run **bs=64** (granite fp32, qwen3 fp16).
+
+**granite-311m (champion ckpt):** activations ≈ 7.6 MB/sample fp16 (ModernBERT local/global attention)
+
+| dtype | weights | bs 64 | bs 128 | bs 256 | bs 384 | bs 512 |
+|---|---|---|---|---|---|---|
+| fp16 | 0.59 GiB | 1.08 | 1.57 | **2.54** | 3.51 | 4.48 — all fit T4 |
+| fp32 | 1.20 GiB | 2.16 | 3.13 | 5.07 | 7.01 | 8.94 — all fit T4 |
+
+**qwen3-0.6B (qwen3_ls ckpt):** activations ≈ 70 MB/sample fp16 (~9× granite — full S×S
+attention, 28 layers, hidden 1024; no ModernBERT local-window discount)
+
+| dtype | weights | bs 64 | bs 128 | bs 256 | bs 384 |
+|---|---|---|---|---|---|
+| fp16 | 1.11 GiB | 5.56 ✓ | **9.99 ✓** | 18.87 **OVER T4** | OOM on 24GB |
+| fp32 | 2.23 GiB | 10.85 ✓ (tight) | 19.48 OVER | OOM | — |
+
+**Verdict:** granite: memory nowhere near binding — **bs 256 fp16** shipped in
+`script_ensemble.py` (512 provably safe; `ENS_BS` env override); the old bs-64 fp32 setup left
+4× batch and 2× dtype on the table. qwen3: **bs 128 fp16 is the T4 ceiling** (9.99/13.5 GiB) —
+only a 2× batch bump over its shipped bs 64, and a 0.6B full-attention model is likely
+compute-bound on a T4 anyway → the 9:18 wall probably moves little; granite+qwen3 pairs stay
+dead unless a re-timed submission proves otherwise. qwen3-depth14 (~half the layers ≈ ~35
+MB/sample) should take bs 256 — relevant only if the depth-14 pair idea ever earns a slot.
+Speed impact is a T4-throughput question only a real submission measures. Logs:
+`sbatch/logs/e26_bs_sweep{,_qwen}.log`.
+
 ## Results
 
 *(pending Phase 0)*
