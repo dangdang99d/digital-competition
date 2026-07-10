@@ -74,6 +74,9 @@ def main():
     ap.add_argument("--max_len", type=int, default=512)
     ap.add_argument("--limit", type=int, default=0, help="smoke: first N held-out rows")
     ap.add_argument("--greedy_len", type=int, default=6)
+    ap.add_argument("--shard", type=int, default=-1,
+                    help="worker mode: forward-pass only runs[shard::nshards] -> shard cache, exit")
+    ap.add_argument("--nshards", type=int, default=3)
     args = ap.parse_args()
 
     from sklearn.metrics import f1_score
@@ -104,7 +107,15 @@ def main():
     logger.info(f"pool: {len(runs)} runs " + str([(t, v) for t, d, v in runs]))
 
     texts_by_var = {}
-    cache = dict(np.load(CACHE)) if os.path.exists(CACHE) and not args.limit else {}
+    cache = {}
+    if not args.limit:                       # merge main cache + every shard cache
+        for p in [CACHE] + sorted(glob.glob(CACHE.replace(".npz", "_s*.npz"))):
+            if os.path.exists(p):
+                cache.update(dict(np.load(p)))
+    my_cache_path = (CACHE.replace(".npz", f"_s{args.shard}.npz")
+                     if args.shard >= 0 else CACHE)
+    my_runs = runs[args.shard::args.nshards] if args.shard >= 0 else runs
+    my_cache = {}
 
     def get_texts(var):
         if var not in texts_by_var:
@@ -114,7 +125,7 @@ def main():
     import torch
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-    for t, d, var in runs:
+    for t, d, var in my_runs:
         if t in cache:
             continue
         logger.info(f"forward: {t} ({var})")
@@ -131,13 +142,16 @@ def main():
                               max_length=args.max_len, padding=True,
                               return_tensors="pt").to("cuda")
                     out.append(model(**enc).logits.float().cpu().numpy())
-            cache[t] = np.concatenate(out)
+            cache[t] = my_cache[t] = np.concatenate(out)
             del model
             torch.cuda.empty_cache()
             if not args.limit:
-                np.savez(CACHE, **cache)
+                np.savez(my_cache_path, **(my_cache if args.shard >= 0 else cache))
         except Exception as e:
             logger.error(f"{t}: skipped — {e}")
+    if args.shard >= 0:
+        logger.success(f"shard {args.shard}/{args.nshards}: {len(my_cache)} new -> {my_cache_path}")
+        return
 
     # ---- ensemble math (uniform softmax mean) ----
     tags = [t for t, _, _ in runs if t in cache]

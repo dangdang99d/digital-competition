@@ -6,6 +6,10 @@ Logical group `research/coreset` (committed on `research/token-selection`). Obje
 Screen backbone: **granite-311m** (fast; E9/E11 precedent). All scores **raw uncalibrated
 macro-F1** (project invariant — NO calibration).
 
+**MSP** (max softmax probability, used throughout) = `max_c softmax(logits)_c` — the model's
+confidence in its own top prediction (one number per row, label-free, computable at test time).
+Low MSP = unsure. Used as the confidence gate/ruler signal; always from raw fp32 logits.
+
 Baselines: historical E9 CE control **0.7458** · in-pipeline `coreset_base` (identical harness,
 full 56k) **0.7498** · deployment champion E8a+LS richargs full_data **0.7803** (3.5k held-out).
 
@@ -46,6 +50,16 @@ full 56k) **0.7498** · deployment champion E8a+LS richargs full_data **0.7803**
   suspect 1386 · cleanlab-clean 11744.
 - **Two "hard" notions:** suspect-mislabel → tier F1 is *confounded* (a better model scores worse
   against a wrong label); ambiguous → F1 meaningful. The "did dropping help" read = easy/clean-val.
+- **Val tier definitions** (fixed by the qwen3 ruler; the tiers partition by the RULER's
+  correctness/confidence — tier F1 in the tables below is then computed for the *evaluated*
+  (granite) models on those rows, so hard-tier F1 is nonzero even though the ruler got them wrong):
+
+  | tier | definition (qwen3 ruler on 14k val) | n | meaning | tier-F1 trustworthy? |
+  |---|---|---|---|---|
+  | easy | qwen3 predicted the label correctly | 10714 | label consistent with text; model-handleable | ✅ yes |
+  | ambig | qwen3 wrong, MSP ≤ 0.6 (unsure) | 1900 | text genuinely unclear between classes | ✅ yes |
+  | suspect | qwen3 wrong, MSP > 0.6 (confident) | 1386 | label itself likely wrong (mislabel signature) | ⚠️ no — grades against a bad label; a better model scores *worse* |
+  | clean-val | val minus cleanlab-flagged rows | 11744 | label-trustworthy subset | ✅ yes — the decision metric |
 - Weights note: champion weights live in `submissions/*.zip`, never `output/` (see memory
   `qwen3-champion-weights-loading`); this experiment needs none — everything trains from HF base.
 

@@ -26,7 +26,7 @@ from sklearn.metrics import f1_score
 
 from src.data import (ACTION_GROUPS, ALL_CLASSES, CLASS_TO_ID, GROUP_ID,
                       SERIALIZE_VARIANTS, build_texts, load_samples, serialize,
-                      split_indices)
+                      session_fold_indices, split_indices)
 
 
 def build_dataset(tok, texts, labels, max_len, desc="tokenizing", teacher=None,
@@ -154,6 +154,32 @@ def make_dynamics_logger(train_ds, collator, tr_idx, labels, out_path, bs=64):
             logger.info(f"train dynamics -> {out_path}  {arr.shape}")
 
     return DynamicsLogger()
+
+
+def make_best_snapshot(metric="eval_macro_f1"):
+    """RAM replacement for save_strategy='epoch' + load_best_model_at_end: after each
+    epoch eval, if the metric improved, snapshot the state_dict to CPU (~1-2s PCIe
+    copy). The training loop never writes checkpoints to the (slow, shared) disk;
+    the best weights are loaded back from RAM after train() and written once."""
+    from transformers import TrainerCallback
+
+    class BestSnapshot(TrainerCallback):
+        def __init__(self):
+            self.best_f1 = None
+            self.best_epoch = None
+            self.best_state = None
+
+        def on_evaluate(self, args, state, control, model=None, metrics=None, **kw):
+            f1 = (metrics or {}).get(metric)
+            if f1 is None or (self.best_f1 is not None and f1 <= self.best_f1):
+                return
+            self.best_f1, self.best_epoch = f1, state.epoch
+            self.best_state = {k: v.detach().to("cpu", copy=True)
+                               for k, v in model.state_dict().items()}
+            logger.info(f"new best {metric}={f1:.4f} @ epoch {state.epoch:.1f} "
+                        "-> weights snapshotted to RAM (no disk write)")
+
+    return BestSnapshot()
 
 
 def _macro_f1(logits, labels, bias):
@@ -655,6 +681,18 @@ def main():
                          "(zero optimizer state -> fits bigger models like Qwen3 full-FT). "
                          "SGD usually needs a higher --lr.")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--warmup_ratio", type=float, default=0.05,
+                    help="LR warmup fraction of total steps (teammate's recipe uses 0.1)")
+    ap.add_argument("--session_fold", type=int, default=-1,
+                    help=">=0: replace the row-stratified split with the teammate's "
+                         "session-grouped StratifiedGroupKFold protocol (leakage-free; "
+                         "val = this fold's ~20%% of sessions). Incompatible with "
+                         "--full_data, which would re-leak sessions into eval.")
+    ap.add_argument("--session_splits", type=int, default=5,
+                    help="fold count for --session_fold (his N_SPLITS=5)")
+    ap.add_argument("--precision", default="auto", choices=["auto", "bf16", "fp16"],
+                    help="mixed-precision dtype; auto = bf16 when supported else fp16. "
+                         "fp16 forces the teammate's recipe (his notebook trains fp16)")
     ap.add_argument("--init_seed", type=int, default=-1,
                     help="seed for init/shuffle/dropout ONLY (head init, dataloader order, "
                          "dropout); the train/val SPLIT stays pinned to --seed. -1 = use "
@@ -688,9 +726,19 @@ def main():
                     help="suffix for the run dir (ft_<model>_<tag>) so reruns don't clobber "
                          "earlier checkpoints of the same model")
     ap.add_argument("--keep_checkpoints", type=int, default=1,
-                    help="how many epoch checkpoints to keep (save_total_limit). Set >1 to "
-                         "enable post-hoc SWA averaging (analysis/swa_average.py); those "
-                         "checkpoints are saved model-only (no optimizer state) to spare disk")
+                    help="1 (default): NO per-epoch disk checkpoints — the best epoch's "
+                         "weights are snapshotted to CPU RAM and written ONCE at the end "
+                         "(the shared disk is slow; epoch saves used to stall the GPU). "
+                         ">1: legacy per-epoch disk checkpoints (save_total_limit=N, "
+                         "model-only) for post-hoc SWA averaging (analysis/swa_average.py)")
+    ap.add_argument("--save_dtype", default="fp16", choices=["fp16", "bf16", "fp32"],
+                    help="dtype of the FINAL saved checkpoint (training/eval stay fp32). "
+                         "fp16 default = the DACON submission runtime precision, and half "
+                         "the write volume; fp32 = the old byte-exact behavior")
+    ap.add_argument("--calibrate", action="store_true",
+                    help="run post-hoc logit-bias calibration on val and write "
+                         "logit_bias.json (legacy default). OFF by default — project "
+                         "decision is raw logits; run pre-submission if ever needed")
     ap.add_argument("--llrd", type=float, default=0.0,
                     help="layer-wise LR decay factor (e.g. 0.9): layer i gets lr*decay^(depth-i); "
                          "embeddings lowest, head full lr. 0 = off (uniform lr)")
@@ -856,7 +904,15 @@ def main():
     texts = build_texts(samples, input_mode=args.input, max_hist=max_hist,
                         variant=args.serialize, strip_history=args.strip_history)
     y_ids = np.array([CLASS_TO_ID[a] for a in y])
-    tr, va = split_indices(y, seed=args.seed)
+    if args.session_fold >= 0:
+        assert not args.full_data, \
+            "--session_fold is the leakage-free k-fold protocol; --full_data would re-leak"
+        tr, va = session_fold_indices(samples, y, args.session_fold,
+                                      n_splits=args.session_splits, seed=args.seed)
+        logger.info(f"session-grouped split: fold {args.session_fold}/{args.session_splits} "
+                    f"(StratifiedGroupKFold by session, leakage asserted 0)")
+    else:
+        tr, va = split_indices(y, seed=args.seed)
     if args.full_data:
         # grow training with 75% of the old val; eval/calibrate on the untouched 25%.
         # Same seed as split_indices -> an --init_from checkpoint trained on `tr`
@@ -1085,8 +1141,16 @@ def main():
     # Qwen3-0.6B on pat (loss -> 0.0, grad_norm NaN mid-epoch-1) while the same
     # recipe was fine for granite — LLM-style backbones overflow fp16's range.
     # 2080 Ti (Turing) has no bf16 -> falls back to fp16 as before.
-    use_bf16 = device == "cuda" and torch.cuda.is_bf16_supported()
-    logger.info(f"precision: {'bf16' if use_bf16 else 'fp16' if device == 'cuda' else 'fp32'}")
+    # --precision fp16|bf16 overrides (E25: teammate's recipe trains fp16; forcing
+    # bf16 on a non-bf16 card would silently train fp32 -> assert instead).
+    if args.precision == "auto":
+        use_bf16 = device == "cuda" and torch.cuda.is_bf16_supported()
+    else:
+        use_bf16 = device == "cuda" and args.precision == "bf16"
+        assert not (args.precision == "bf16" and device == "cuda"
+                    and not torch.cuda.is_bf16_supported()), "--precision bf16: no bf16 on this GPU"
+    logger.info(f"precision: {'bf16' if use_bf16 else 'fp16' if device == 'cuda' else 'fp32'}"
+                + (f" (--precision {args.precision})" if args.precision != "auto" else ""))
     # gradient checkpointing: only worth its ~30-40% slowdown when the config is
     # actually VRAM-tight (large backbone or long sequences). granite-311m@512 uses
     # ~7GB of a 24GB card WITH it on -> pure overhead; auto turns it off. It is
@@ -1106,21 +1170,31 @@ def main():
     logger.info(f"gradient_checkpointing: {use_gc} (--grad_checkpointing={args.grad_checkpointing}"
                 + (f", {sum(p.numel() for p in model.parameters())/1e6:.0f}M params, max_len={args.max_len})"
                    if args.grad_checkpointing == "auto" else ")"))
+    # checkpointing: the shared disk is slow enough that per-epoch saves stall the GPU,
+    # so the DEFAULT (--keep_checkpoints 1) writes NOTHING during training — best-epoch
+    # weights live in a CPU-RAM snapshot (BestSnapshot callback replaces save_strategy
+    # ='epoch' + load_best_model_at_end) and hit disk exactly once, after train().
+    # --keep_checkpoints >1 keeps the legacy per-epoch disk checkpoints, which SWA
+    # averaging genuinely needs on disk.
+    ram_best = args.keep_checkpoints <= 1
+    ckpt_kw = (dict(save_strategy="no")
+               if ram_best else
+               dict(save_strategy="epoch", load_best_model_at_end=True,
+                    metric_for_best_model="macro_f1", greater_is_better=True,
+                    save_total_limit=args.keep_checkpoints,
+                    save_only_model=True))              # SWA needs weights only; ~3x less disk
     targs = TrainingArguments(
         output_dir=run_dir, num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size * 2,
         gradient_accumulation_steps=args.grad_accum, learning_rate=args.lr,
         optim=args.optim,                              # sgd for big models (zero optimizer state)
-        warmup_ratio=0.05, weight_decay=0.01,
+        warmup_ratio=args.warmup_ratio, weight_decay=0.01,
         logging_strategy="steps", logging_steps=50,   # periodic {loss,epoch} log lines
         disable_tqdm=False,                            # keep the bar; tqdm.auto is log-safe
         gradient_checkpointing=use_gc,                 # trade compute for VRAM (full-FT is heavy)
         group_by_length=args.group_by_length,          # cut padding waste at small batch
-        eval_strategy="epoch", save_strategy="epoch",
-        load_best_model_at_end=True, metric_for_best_model="macro_f1", greater_is_better=True,
-        save_total_limit=args.keep_checkpoints,
-        save_only_model=(args.keep_checkpoints > 1),   # SWA needs weights only; saves ~2x disk
+        eval_strategy="epoch", **ckpt_kw,
         bf16=use_bf16, fp16=(device == "cuda" and not use_bf16),
         report_to="none", seed=init_seed,
     )
@@ -1189,6 +1263,10 @@ def main():
         logger.info("LTP hard-recover: weights-only, no sparsity regularizer, "
                     "no threshold LR group")
     dyn_callbacks = []
+    snap = None
+    if ram_best:
+        snap = make_best_snapshot()
+        dyn_callbacks.append(snap)
     if args.log_dynamics:
         dyn_callbacks.append(make_dynamics_logger(
             train_ds, collator, tr, y_ids[tr], args.log_dynamics))
@@ -1206,29 +1284,53 @@ def main():
                     f"(linear over training)")
 
     trainer.train()
-    metrics = trainer.evaluate()
-    val_f1 = metrics["eval_macro_f1"]
+    if ram_best and snap.best_state is not None:
+        # best-epoch weights come from the RAM snapshot; the per-epoch evals already
+        # produced the reported metric, so no extra evaluate() pass is needed
+        model.load_state_dict(snap.best_state)
+        val_f1 = snap.best_f1
+        logger.info(f"best-epoch weights (epoch {snap.best_epoch:.1f}) loaded from RAM")
+    else:
+        # legacy disk mode (HF reloaded the best checkpoint itself), or the RAM
+        # snapshot never fired (e.g. --epochs <1 hit no epoch-end eval)
+        val_f1 = trainer.evaluate()["eval_macro_f1"]
     logger.success(f"{args.model}: best val Macro-F1 = {val_f1:.4f}")
 
-    # ---- logit-bias calibration on val (73.07 trick) ----
-    pred_out = trainer.predict(val_ds)
-    val_logits = pred_out.predictions
-    val_labels = pred_out.label_ids
-    bias, base_f1, tuned_f1 = calibrate_logit_bias(val_logits, val_labels)
-    logger.success(f"  calibrated: {base_f1:.4f} -> {tuned_f1:.4f} (+{tuned_f1-base_f1:.4f})")
-    # save the bias next to the model checkpoint for inference
-    id2label = model.config.id2label
-    bias_map = {id2label[i]: float(bias[i]) for i in range(len(classes))}
-    with open(os.path.join(run_dir, "logit_bias.json"), "w") as f:
-        json.dump({"base_macro_f1": float(base_f1), "tuned_macro_f1": float(tuned_f1),
-                   "bias": bias_map}, f, indent=2)
+    # ---- optional logit-bias calibration on val (73.07 trick). OFF by default:
+    # project decision 2026-07-07 is raw logits everywhere; if ever needed it can run
+    # pre-submission against the saved checkpoint instead of inside training ----
+    tuned_f1 = None
+    if args.calibrate:
+        pred_out = trainer.predict(val_ds)
+        bias, base_f1, tuned_f1 = calibrate_logit_bias(pred_out.predictions,
+                                                       pred_out.label_ids)
+        logger.success(f"  calibrated: {base_f1:.4f} -> {tuned_f1:.4f} (+{tuned_f1-base_f1:.4f})")
+        # save the bias next to the model checkpoint for inference
+        id2label = model.config.id2label
+        bias_map = {id2label[i]: float(bias[i]) for i in range(len(classes))}
+        with open(os.path.join(run_dir, "logit_bias.json"), "w") as f:
+            json.dump({"base_macro_f1": float(base_f1), "tuned_macro_f1": float(tuned_f1),
+                       "bias": bias_map}, f, indent=2)
+
+    # ---- final artifact: ONE write of the best weights to the run_dir root, in
+    # --save_dtype (fp16 default = submission runtime precision, half the bytes).
+    # Cast in place — nothing runs a forward pass after this point. Disk-checkpoint
+    # mode gets the same root artifact on top of its epoch checkpoints ----
+    save_dt = {"fp16": torch.float16, "bf16": torch.bfloat16,
+               "fp32": torch.float32}[args.save_dtype]
+    if save_dt != torch.float32:
+        model.to(save_dt)
+    model.config.torch_dtype = save_dt   # honest reload metadata
+    model.save_pretrained(run_dir)
+    logger.info(f"final model ({args.save_dtype}) -> {run_dir}")
 
     # ---- record ----
     os.makedirs(args.out_dir, exist_ok=True)
     row = {"model": args.model, "method": f"lora{args.lora}" if args.lora else "full_ft",
            "head": f"mlp{args.head_layers}_{args.head_act}" if args.head_layers else "linear",
            "epochs": args.epochs, "lr": args.lr, "val_macro_f1": round(float(val_f1), 4),
-           "calibrated_macro_f1": round(float(tuned_f1), 4),
+           # column kept for CSV-append compatibility; empty when --calibrate is off
+           "calibrated_macro_f1": round(float(tuned_f1), 4) if tuned_f1 is not None else "",
            "tag": args.tag, "max_len": args.max_len, "serialize": args.serialize,
            "special_tokens": args.special_tokens,
            "init_from": args.init_from, "full_data": args.full_data,

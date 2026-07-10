@@ -126,11 +126,24 @@ SERIALIZE_VARIANTS = {
     # richmeta + directory simplification inside history action args too
     # (path/scope/pattern values). One axis vs richmeta: v1 -> richmeta -> richargs.
     "richargs":  {"rich_meta": True, "arg_basenames": True},
+    # richmeta + SURGICAL basenames (teammate's HISTPATH="files" policy): strip
+    # directories only where the value names a real FILE (_FILE_ARG_KEYS);
+    # list_directory.path and grep_search.scope keep their directories — there
+    # the directory IS the signal. Middle rung: richmeta -> richfiles -> richargs.
+    "richfiles": {"rich_meta": True, "arg_basenames": "files"},
     # teammate Ki Min Seo's exact SOTA-0.77427 format — a DIFFERENT structure
     # ([META]/[HIST]/[CUR], hist-cap 12); handled specially in build_texts via
     # serialize_names(), NOT serialize(). Empty dict = just a valid --serialize choice.
     "names":     {},
+    # names + the HISTPATH="files" arg stripping (same _FILE_ARG_KEYS policy);
+    # also handled in build_texts via serialize_names(histpath="files").
+    "names_files": {},
 }
+
+# (action, arg-key) pairs whose value names a real FILE — the surgical "files"
+# stripping policy from the teammate's build_nb.py (HISTPATH="files").
+_FILE_ARG_KEYS = {("read_file", "path"), ("edit_file", "path"), ("write_file", "path"),
+                  ("run_tests", "target"), ("lint_or_typecheck", "target")}
 
 
 def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
@@ -183,7 +196,12 @@ def serialize(r, max_hist=None, hist_dropout=0.0, rng=None,
                          "ACTION " + line.replace(" ", " -> ", 1))
         else:
             args = t.get("args", {}) or {}
-            if arg_basenames:
+            if arg_basenames == "files":
+                args = {k: _strip_dirs(v)
+                        if (t["name"], k) in _FILE_ARG_KEYS and isinstance(v, str)
+                        else v
+                        for k, v in args.items()}
+            elif arg_basenames:
                 args = {k: _strip_dirs(v) if isinstance(v, str) else v
                         for k, v in args.items()}
             parts.append(
@@ -240,8 +258,13 @@ def _names_elapsed_bucket(seconds):
     return "late"
 
 
-def serialize_names(r, max_history_events=12):
-    """Ki Min Seo's 'names' serialization, byte-identical to his render_sample."""
+def serialize_names(r, max_history_events=12, histpath="full"):
+    """Ki Min Seo's 'names' serialization, byte-identical to his render_sample.
+
+    histpath="files" applies his HISTPATH="files" policy (from build_nb.py): history
+    arg values are stripped to basenames ONLY for the _FILE_ARG_KEYS (action, key)
+    pairs; identical basename logic (rstrip("/") then last segment). Default "full"
+    keeps the byte-identical guarantee."""
     meta = r.get("session_meta") or {}
     workspace = meta.get("workspace") or {}
     history = r.get("history") or []
@@ -275,7 +298,15 @@ def serialize_names(r, max_history_events=12):
             hist_parts.append(f"U: {_names_safe_text(item.get('content'))}")
         elif role == "assistant_action":
             name = _names_safe_text(item.get("name"))
-            args = _names_compact_json(item.get("args") or {})
+            args_d = item.get("args") or {}
+            if histpath == "files":
+                # his exact _strip_args("files"): basename iff (name, key) is a
+                # file-arg pair AND the value is a str containing "/"
+                args_d = {k: (v.rstrip("/").split("/")[-1]
+                              if (name, k) in _FILE_ARG_KEYS
+                              and isinstance(v, str) and "/" in v else v)
+                          for k, v in args_d.items()}
+            args = _names_compact_json(args_d)
             result = _names_safe_text(item.get("result_summary"))
             hist_parts.append(f"A[{name}] {args} -> {result}")
 
@@ -291,10 +322,12 @@ def build_texts(samples, input_mode="context", max_hist=None, variant="v1",
     if input_mode == "prompt":
         return [s["current_prompt"] or "" for s in samples]
     if input_mode == "context":
-        if variant == "names":
+        if variant in ("names", "names_files"):
             # his exact serialization; his hist-cap is 12 (used when max_hist unset)
             mh = max_hist if isinstance(max_hist, int) and max_hist > 0 else 12
-            return [serialize_names(s, max_history_events=mh) for s in samples]
+            hp = "files" if variant == "names_files" else "full"
+            return [serialize_names(s, max_history_events=mh, histpath=hp)
+                    for s in samples]
         kw = SERIALIZE_VARIANTS[variant]
         return [serialize(s, max_hist=max_hist, strip_history=strip_history, **kw)
                 for s in samples]
@@ -302,9 +335,30 @@ def build_texts(samples, input_mode="context", max_hist=None, variant="v1",
 
 
 def split_indices(y, test_size=0.2, seed=42):
-    """Stratified train/val split over row indices."""
+    """Stratified train/val split over row indices.
+
+    ⚠️ Row-level only: later steps of a val session can sit in train (train
+    histories contain the same sessions), so this val is session-leaky and its
+    scores run optimistic. session_fold_indices is the leakage-free protocol."""
     idx = np.arange(len(y))
     tr, va = train_test_split(idx, test_size=test_size, stratify=y, random_state=seed)
+    return tr, va
+
+
+def session_fold_indices(samples, y, fold, n_splits=5, seed=42):
+    """Teammate's leakage-free split: StratifiedGroupKFold grouped by SESSION.
+
+    Rows are grouped by session id (sample id minus the -step_N suffix) so no
+    session spans train and val. Parameters match his build_nb.py exactly
+    (shuffle=True, random_state=seed, n_splits=5) -> same folds as his runs,
+    modulo sklearn version. fold selects which fold is val (~20% of sessions)."""
+    from sklearn.model_selection import StratifiedGroupKFold
+    sessions = np.array([re.sub(r"-step_\d+$", "", s["id"]) for s in samples])
+    sgkf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    tr, va = list(sgkf.split(np.zeros(len(sessions)), np.asarray(y),
+                             groups=sessions))[fold]
+    leak = set(sessions[tr]) & set(sessions[va])
+    assert not leak, f"session leakage: {len(leak)} sessions in both splits"
     return tr, va
 
 

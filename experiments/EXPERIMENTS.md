@@ -66,6 +66,7 @@ working tree + live training). The table maps each group to its doc and experime
 | E24 | token-selection | **Upstream feature/token selection** (a *filter*: score once → retrain once) — **A** attention/saliency token-select + top-k refit · **B** field-level occlusion selection · A×B scorer-overlap | granite champion **E8a+LS richargs 0.7803**; from-scratch full-input anchor **0.7790** (harness faithful) | **A ❌:** attn k90 scratch 0.7712 (−0.008) · sal k90 **0.7550 (−0.024)** — even 10% token-drop hurts, low-redundancy input; sweep stop-rule fired at k90. **B 🟡:** meta-subfield tail drops LOSSLESS (drop5 0.7780 ≈ anchor) but NO gain — efficiency only. **Overlap:** attn∩sal ≈ chance (1.2×, Spearman 0.35) → no model-independent unimportant-token set. **Recovery arm confounded** (~0.763 regardless of input — warm-start+3ep degrades champion) | — | n/a | ✅ **DONE — selection NULL for accuracy; champion stays.** C/D dropped (gated on slack — none). Report: [token-selection/results.md](token-selection/results.md) |
 | E25 | miseo-recipe | **Teammate-recipe repro** (his build_nb.py obtained 07-09) — **a:** his settings verbatim on our pipeline (names + CE + warmup 0.1 + fp16) · **b:** his settings + our levers (+ LS ε=0.1 + bf16) · **c:** = b with `richmeta` (our format, his full-path history style — direct richmeta-vs-richargs probe). All `--full_data` (stand-in for his train-on-all; NOT k-fold, per user). Read-outs: a ≈ his level? · b−a = LS+bf16 on his recipe · b vs E21 0.7731 = warmup 0.1↔0.05 single axis · c vs b = our-vs-his packaging of identical info | his LB 0.77427 / OOF base 0.7642 · E21 names+LS 0.7731 · E8a richargs+LS 0.7803 | **a 0.7692 · b 0.7742 · c 0.7801**: repro sane · LS+bf16 **+0.0050** on his recipe · warmup 0.1↔0.05 **+0.0011** (≈noise) · our format > his **+0.0059** (c vs b, equal path info) · **richmeta 0.7801 ≈ richargs 0.7803** — his "richmeta>richargs" NOT reproduced | — | — | ✅ **DONE — no recipe edge; champion (E8a richargs+LS) stands.** Report: [miseo-recipe/results.md](miseo-recipe/results.md). New flags `--warmup_ratio`/`--precision`/`--session_fold`; new variants `names_files`/`richfiles` |
 | E26 | ensemble | **Checkpoint ensemble** — combine existing trained models (uniform softmax mean, NO weights/calibration) for the highest submittable score. Phase 0: screen ~20 checkpoints on the shared 3.5k held-out (all-pairs + greedy Caruana + disagreement); Phase 1: package best combo under constraints (2× granite fp16 + vocab-prune shape); Phase 2: submit. Constraint math: full qwen3 DEAD (9:18 alone); 2× granite fp32 ≈10:12 over; soup = constraint-free but needs new shared-init trainings (opt arm) | LB **0.77931** (granite+TTA) · non-TTA 0.77921 · screen ref champion 0.7803 | — | — | — | 🔲 **QUEUED** — design + `screen_ensemble.py` built; gates: package only if screen > champion +0.003; LB is the judge (3.5k mis-ranks, E8). [ensemble/results.md](ensemble/results.md) |
+| E27 | errorpred | **Error prediction** — label-free per-row estimate of "will the prediction be wrong" (test-applicable) + structure to recover the true label on flagged rows. Phase 1: MSP-decile × rank-1..4 confusion analysis on granite-LS e9 val logits. Phase 2 candidates (3-agent lit survey): A LS-damage audit + p-norm-logit fix · B assessor v2 (multi-model + CL/PVI-kNN features) · C CRL retrain · D SWA/SAM | E20 gate ceiling **0.854 AUROC** · granite-LS MSP→err **0.843** | **Phase 1 ✅: true ∈ top-4 ≥98.6% in every decile** · true in r1's group ≥0.95 even among wrongs · wrong→true=r2 51–65% · blind rank-swap dead (d1: keep 36% > swap 32%) → exploit needs an independent intra-group signal | [rank profile](errorpred/figures/true_rank_profile.png) · [rank2 confusion](errorpred/figures/rank2_confusion_by_decile.png) | — | 🔵 **ACTIVE** — phase 2 arm awaiting user pick. [errorpred/results.md](errorpred/results.md) |
 
 Status legend: ⏸ blocked-external · ⛔ gated · 🔎 analysis · 🏃 running · ✅ done · ❌ refuted
 New figures → `experiments/<branch>/figures/`; the `figures/` root holds pre-branch legacy plots.
@@ -273,6 +274,23 @@ fp16 + vocab-prune** (est ~600–700M, time to be measured by the submission its
 (E12 revival, ~4.5 GPU-h) — constraint-free inference.
 - **Gates:** package only if screen > champion 0.7803 by +0.003; prefer diverse members; first
 submission conservative (2 members). LB judges (3.5k slice mis-ranks — E8 lesson).
+
+### E27 · Error prediction — decile × rank confusion structure — 🔵 ACTIVE (user 2026-07-09) — report: [errorpred/results.md](errorpred/results.md)
+- **Objective:** estimate per-row whether the model's prediction will be WRONG (test-applicable,
+  label-free), then find structure that recovers the true label on likely-wrong rows. Anchors:
+  E20 (~0.85 MSP gate ceiling) · §5 group acc ~0.99 · E6 (blind top-2 fallback fails).
+- **Phase 1 (✅ analysis, CPU on cached logits):** granite-LS e9 val logits → MSP deciles ×
+  confusion matrices for rank-1..4 counterfactual picks (`errorpred/decile_confusion.py`).
+  **Result: true label ∈ top-4 ≥98.6% in EVERY decile** (even MSP 0.18–0.42); true ∈ rank-1's
+  group ≥0.95 among wrong rows; when wrong, true = rank-2 51–65% / rank-3 22–33%; rank-2 stays
+  in-group 98–99% in deciles 1–6. Blind rank-swap quantified dead: even in decile 1, keep-rank-1
+  36.4% > swap-to-rank-2 32.3% — any exploit must ADD an independent signal, not permute ranks.
+- **Phase 2 (literature, ✅ 3-agent survey 2026-07-09):** post-hoc scores confirmed dead vs MSP
+  (FD-Shifts et al.); live candidates = **A** LS-damage audit + p-norm-logit rescue (zero GPU;
+  LS ε=0.1 documented to cost 3–9 AUROC pts, free post-hoc fix, ICLR'25) · **B** assessor v2
+  (XGBoost on multi-model MSP/agreement/KL + kNN-propagated CL/PVI difficulty + group-margin) ·
+  **C** CRL retrain · **D** SWA/SAM (FMFP) retrain. Awaiting user pick.
+- **Status:** 🔵 ACTIVE — phase 1 done; exploit arm not chosen yet.
 
 ### Backlog / housekeeping
 - rdrop (disc task 0) never finished on the old box — superseded in spirit by supcon's

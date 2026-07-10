@@ -71,3 +71,8 @@ outputs/
 .DS_Store
 
 presentation/notion*/
+
+# submission build dirs (contain >100MB model weights)
+build_tta/
+# stale sync backup of .git (kyusang_main salvaged to archive/kyusang_main)
+.git.synced-backup/
