@@ -1,16 +1,17 @@
-"""DACON action-decision inference — E26 two-member granite ensemble (richargs).
+"""DACON action-decision inference — E26 two-member granite ensemble.
 
-Ships as `script.py`. Layout inside the zip:
-  model/tokenizer/            one COMPLETE tokenizer (shared; granite members are same backbone)
-  model/remap.npy             tokenizer id -> pruned-embedding row (shared: members pruned
-                              with the SAME keep-set, so one remap serves both)
-  model/member_0_<tag>/       vocab-pruned fp16 granite classifier
-  model/member_1_<tag>/       vocab-pruned fp16 granite classifier
+Zip layout:
+  model/tokenizer/            one COMPLETE tokenizer (granite members share it)
+  model/remap.npy             tokenizer id -> pruned-embedding row (keep-set = union over
+                              all member serializations, so one remap serves every member)
+  model/member_<i>_<tag>/     vocab-pruned fp16 granite + serialize_variant.json
+                              ({"variant": "richargs"|"richmeta"} — HOW that member's
+                              training serialized inputs; richmeta = richargs minus
+                              arg-basename stripping)
 
-Pipeline: serialize richargs (byte-copy of training) -> tokenize ONCE -> length-sorted
-batches (bs 256, fp16) -> per member: forward all batches, softmax -> UNIFORM MEAN of member
-probabilities -> raw argmax (NO calibration) -> restore order -> submission.csv.
-Members run sequentially (load -> forward -> free) so peak VRAM = one model.
+Pipeline: per DISTINCT variant, serialize + tokenize ONCE; length-sorted batches (bs 256
+fp16); members run sequentially (peak VRAM = one model) on their own variant's encodings;
+UNIFORM MEAN of member softmax probabilities; raw argmax (NO calibration); restore order.
 """
 import csv
 import json
@@ -24,11 +25,11 @@ ALL_CLASSES = [
     "ask_user", "plan_task", "web_search", "respond_only",
 ]
 MAX_LENGTH = 512
-BATCH_SIZE = int(os.environ.get("ENS_BS", "256"))   # T4-sized: peak VRAM measured on the sweep
+BATCH_SIZE = int(os.environ.get("ENS_BS", "256"))
 
 
-# ----- richargs serialization (byte-for-byte copy of src/data.py:serialize
-#       with rich_meta=True, arg_basenames=True; used at training time) -----
+# ----- rich serialization (byte-for-byte from src/data.py:serialize, rich_meta=True;
+#       strip_args toggles arg_basenames: True -> richargs, False -> richmeta) -----
 def _budget_bucket(tokens):
     if tokens < 2_000:
         return "very_low"
@@ -54,7 +55,7 @@ def _strip_dirs(v):
     return v.rstrip("/").rsplit("/", 1)[-1] + tail
 
 
-def serialize_richargs(r):
+def serialize_rich(r, strip_args):
     sm = r["session_meta"]
     ws = sm["workspace"]
     parts = []
@@ -74,11 +75,15 @@ def serialize_richargs(r):
             parts.append(f"USER: {t['content']}")
         else:
             args = t.get("args", {}) or {}
-            args = {k: _strip_dirs(v) if isinstance(v, str) else v
-                    for k, v in args.items()}
+            if strip_args:
+                args = {k: _strip_dirs(v) if isinstance(v, str) else v
+                        for k, v in args.items()}
             parts.append(f"ACTION {t['name']}({args}) -> {t.get('result_summary', '')}")
     parts.append(f"PROMPT: {r['current_prompt']}")
     return "\n".join(parts)
+
+
+VARIANT_STRIP = {"richargs": True, "richmeta": False}
 
 
 def load_jsonl(path):
@@ -103,6 +108,12 @@ def main():
 
     member_dirs = sorted(model_root.glob("member_*"))
     assert member_dirs, "no model/member_* dirs in the zip"
+    variants = {}
+    for mdir in member_dirs:
+        v = json.load(open(mdir / "serialize_variant.json"))["variant"]
+        assert v in VARIANT_STRIP, f"unknown variant {v}"
+        variants[mdir] = v
+
     tokenizer = AutoTokenizer.from_pretrained(model_root / "tokenizer", local_files_only=True)
     tokenizer.truncation_side = "right"
     remap = torch.from_numpy(np.load(model_root / "remap.npy")).long().to(device)
@@ -110,42 +121,38 @@ def main():
 
     samples = load_jsonl(data_dir / "test.jsonl")
     ids = [s["id"] for s in samples]
-    texts = [serialize_richargs(s) for s in samples]
 
-    # tokenize ONCE (shared tokenizer), then length-sort to kill padding waste
-    encodings = tokenizer(texts, truncation=True, max_length=MAX_LENGTH)
-    encodings = [{"input_ids": encodings["input_ids"][i],
-                  "attention_mask": encodings["attention_mask"][i]}
-                 for i in range(len(texts))]
-    order = sorted(range(len(encodings)), key=lambda i: len(encodings[i]["input_ids"]))
+    # serialize + tokenize ONCE per distinct variant; shared length-sort order per variant
+    enc_by_variant, order_by_variant = {}, {}
+    for v in set(variants.values()):
+        texts = [serialize_rich(s, VARIANT_STRIP[v]) for s in samples]
+        e = tokenizer(texts, truncation=True, max_length=MAX_LENGTH)
+        e = [{"input_ids": e["input_ids"][i], "attention_mask": e["attention_mask"][i]}
+             for i in range(len(texts))]
+        enc_by_variant[v] = e
+        order_by_variant[v] = sorted(range(len(e)), key=lambda i: len(e[i]["input_ids"]))
 
-    mean_probs = None
+    mean_probs = np.zeros((len(samples), len(ALL_CLASSES)), dtype=np.float64)
     for mdir in member_dirs:
+        v = variants[mdir]
+        enc, order = enc_by_variant[v], order_by_variant[v]
         model = AutoModelForSequenceClassification.from_pretrained(
             mdir, local_files_only=True, torch_dtype=torch.float16).to(device).eval()
-        probs_sorted = []
         with torch.no_grad():
             for start in range(0, len(order), BATCH_SIZE):
-                chunk = [encodings[i] for i in order[start:start + BATCH_SIZE]]
-                batch = {k: v.to(device) for k, v in collator(chunk).items()}
+                idx = order[start:start + BATCH_SIZE]
+                batch = {k: t.to(device) for k, t in collator([enc[i] for i in idx]).items()}
                 batch["input_ids"] = remap[batch["input_ids"]]
                 logits = model(**batch).logits.float()
-                probs_sorted.append(torch.softmax(logits, -1).cpu().numpy())
-        probs_sorted = np.concatenate(probs_sorted, 0)
-        mean_probs = probs_sorted if mean_probs is None else mean_probs + probs_sorted
+                mean_probs[idx] += torch.softmax(logits, -1).cpu().numpy()
         del model
         if device.type == "cuda":
             torch.cuda.empty_cache()
-        print(f"member done: {mdir.name}")
+        print(f"member done: {mdir.name} ({v})")
     mean_probs /= len(member_dirs)
 
     # NO calibration: raw argmax of the uniform member-probability mean.
-    id2label = {i: c for i, c in enumerate(ALL_CLASSES)}
-    preds_sorted = mean_probs.argmax(1)
-    preds = [None] * len(order)
-    for pos, orig_idx in enumerate(order):
-        preds[orig_idx] = id2label[int(preds_sorted[pos])]
-
+    preds = [ALL_CLASSES[int(i)] for i in mean_probs.argmax(1)]
     pred_map = dict(zip(ids, preds))
     with open(data_dir / "sample_submission.csv", newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
