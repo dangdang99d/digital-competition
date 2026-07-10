@@ -172,7 +172,25 @@ adds +0.001 as 4th. Ensemble diversity ≠ single-model quality — the screen w
 - **1B teacher:** greedy-4 (0.7851) is the slice-optimal teacher; qwen3_ls variant (+1h harvest)
   as an optional second teacher despite the slice read, since the slice provably under-ranks qwen3 on LB.
 
-*(execution blocked on host-side GPU fix; 8 models can still be appended to the pool after)*
+*(8 pool stragglers can still be appended post-GPU-fix)*
+
+## Results — LB (submitted 2026-07-10, parity waived by user; LB itself validated the pipeline)
+
+| zip | slice | **LB** | Δ prior SOTA 0.77931 | time |
+|---|---|---|---|---|
+| **E26-A** is2+estack (richargs pair) | 0.7832 | **0.78548** 🥇 **NEW SOTA** | **+0.0062** | **4:30** |
+| E26-B is3+e25c (cross-serialization) | 0.7840 | 0.78498 | +0.0057 | 4:46 |
+| s43 leak probe (single, fp32) | 0.7955 leaked / 0.7758 honest | 0.77427 | −0.0050 | 5:12 |
+
+Readings: (1) **ensembling is a step-change**: +0.0081 over the granite champion single — the
+biggest jump since LS; and the slice UNDER-predicted LB (0.7832 → 0.78548) while mis-ordering
+the two pairs (preferred B; LB says A) — E8's slice-mis-rank cuts both ways. (2) **Speed thesis
+confirmed and exceeded: the fp16 bs-256 pair (4:30) is FASTER than the single fp32 bs-64
+champion (5:06)** — a third member fits both caps (≈840M, ~6:45). (3) **s43 leak confirmed on
+LB** (0.77427 < champion 0.77738, ≈ its honest 0.7758): the 0.7955 was memorization; also a
+same-recipe seed reroll ≠ champion (seed luck real). (4) The LB scores validate the whole
+pruned+fp16+dual-serialization pipeline end-to-end (parity gate retroactively moot for these
+two zips; keep it for future builds).
 
 ## Reproduce
 
