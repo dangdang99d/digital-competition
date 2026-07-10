@@ -39,10 +39,17 @@ Feasibility math (why most ensembles are dead on arrival) — user-confirmed 202
 
 | Phase | What | Cost | Status |
 |---|---|---|:--:|
-| 0 | **screen**: harvest val logits of ~20 existing checkpoints on the shared 3.5k held-out → all-pairs + greedy (Caruana) uniform-softmax selection + disagreement/diversity analysis | ~20 fwd passes × 3.5k (≈1 h on 1 GPU; CPU for the math) | 🔲 built (`screen_ensemble.py`), awaiting go |
-| 1 | package the best constraint-feasible combo: fp16 + granite vocab-prune + parity gate + zip | CPU + 1 parity pass | 🔲 gated on Phase 0 ≥ champion +0.003 |
-| 2 | submit → record LB score + measured time (the fp16-pair timing datum) | 1 submission slot | 🔲 |
+| 0 | **screen**: harvest val logits of ~20 existing checkpoints on the shared 3.5k held-out → all-pairs + greedy (Caruana) uniform-softmax selection + disagreement/diversity analysis | ~20 fwd passes × 3.5k (≈1 h on 1 GPU; CPU for the math) | 🏃 running (GPUs 0–2; 13 pre-crash cached) |
+| **1A** | **pair submission** (user-selected path 1): best granite pair → `build_submission.py` (shared keep-set prune + fp16 + shared remap/tokenizer + parity gate vs screen logits + zip) + `script_ensemble.py` (tokenize-once, length-sort, bs 256 fp16, sequential members, uniform prob mean) | CPU + 1 parity pass | 🔨 code ready |
+| **1B** | **ensemble distillation** (user-selected path 2; = E10 revival): larger teacher (MAY include qwen3_ls — offline only) → `distill_teacher.py` (member train-logits → mean-softmax teacher npz) → from-scratch granite student via existing `finetune.py --distill_from/--distill_alpha/--distill_T` (CE+KD; LS not combinable) → normal single-model zip | ~1 fwd/member over 70k + 1.5 GPU-h/student | 🔨 code ready |
+| 2 | submit best of 1A/1B → record LB + measured time (1A doubles as the fp16-pair timing datum) | 1–2 submission slots | 🔲 |
 | opt | soup arm: 2–3 shared-init LR-diverse champions → uniform weight-merge (E12 revival, done right) | ~4.5 GPU-h | 🔲 propose separately |
+
+Phase-0 screen exclusions (found in the partial pre-crash read): `e12_granite_ls_s43/s44`
+(trained seed 43/44 → different full_data split → **leak** on our seed-42 slice: scored 0.7955 vs
+own-val 0.7758) · `e4_ffn_r512` (factored FFN — plain `from_pretrained` loads garbage, 0.031).
+Distillation expectations: students typically recover **60–90% of the ensemble−single gap** —
+the teacher must clearly beat 0.7803 for 1B to be worth a slot.
 
 **Decision gates:** package only if the screen beats the champion **0.7803 by > +0.003** (slice
 noise); prefer *diverse* members at equal F1 (different recipe/serialization/data — disagreement

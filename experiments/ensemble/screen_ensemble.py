@@ -26,8 +26,12 @@ from loguru import logger
 from src.data import ALL_CLASSES, CLASS_TO_ID, build_texts, load_samples, split_indices
 
 CACHE = "analysis/cache/e26_screen_logits.npz"
-# substrings that disqualify a run dir (specialists, smoke, reduced-input pipelines)
-EXCLUDE = ("ceil_", "smoke", "a24_attn", "a24_sal", "b24_", "ltp")
+# substrings that disqualify a run dir (specialists, smoke, reduced-input pipelines,
+# e12_*_s43/s44: trained with seed 43/44 -> different full_data split -> LEAKS our seed-42
+# slice (scored 0.7955 vs own-val 0.7758); e4_ffn: factored FFN, plain from_pretrained
+# loads garbage (0.031))
+EXCLUDE = ("ceil_", "smoke", "a24_attn", "a24_sal", "b24_", "ltp",
+           "e12_granite_ls_s4", "e4_ffn")
 
 
 def resolve_ckpt(run_dir):
