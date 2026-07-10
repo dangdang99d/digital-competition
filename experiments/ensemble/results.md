@@ -120,6 +120,32 @@ Speed impact is a T4-throughput question only a real submission measures. Logs:
 | weight-space soup / SWA | 0 | NOT logit-level — needs shared-init retrains (E12); optional arm |
 | distillation (Path 1B) | — | ensemble → single model; the constraint-dissolving variant |
 
+## Path-1B distillation — DECIDED plan (user-approved 2026-07-10; fire when GPUs return)
+
+**Teacher selection** (slice numbers for the record — but the trio is chosen because it is
+**LB-certified**, the only teacher whose test-distribution quality is measured; the slice
+mis-ordered ensembles twice today):
+
+| teacher candidate | slice | verdict |
+|---|---|---|
+| **T1 = LB-certified trio** is3+aum06+e25c (LB 0.78719) | 0.7850 | ✅ PRIMARY |
+| 5-union of both LB ensembles (+is2, estack) | 0.7824 | ✗ slice-worse, no new diversity axis |
+| **T2 = trio + champion + qwen3_ls** (6 members) | 0.7842 | ✅ DIVERSITY BET — the only mechanism that gets qwen3 knowledge into a submittable model; slice structurally under-ranks qwen3 (E8) |
+
+**Student run set** (from-scratch granite champion recipe; ~1.5 GPU-h each):
+
+| # | teacher | KD setting | tests |
+|---|---|---|---|
+| 1 | T1 trio | vanilla α=0.7, **T=2** (teacher = mean of 3 LS models → already soft; don't over-temper) | the workhorse |
+| 2 | T1 trio | soft-labels-only α=1, T=1 | teacher-as-better-labels (E22: ~6% labels noisy) |
+| 3 | T2 6-member | vanilla α=0.7, T=2 | cross-backbone transfer (qwen3 → granite) |
+| 4 | champion only | vanilla α=0.7, T=2 | born-again CONTROL — KD-regularizer vs ensemble-knowledge attribution |
+
+Execution: 6 member harvests over 70k (`distill_teacher.py`; per-member caches shared by both
+teachers; qwen3_ls resumes its partial cache) ≈2 h on healthy GPUs → build T1/T2 npz →
+4 students overnight → slice-read → submit best 1–2. Endgame note: distilled students are
+themselves ensemble MEMBERS — a trio of students is the same 6:52/836M shape with stronger parts.
+
 ## Path-1B distillation taxonomy (user ask 2026-07-10)
 
 | # | method | knobs | code status | in run set? |
