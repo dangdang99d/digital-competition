@@ -16,6 +16,23 @@ historical CV.
 including `.zip`** — several past names exceeded it and needed manual pruning at upload. Name new
 zips ≤32 chars (aim ≤28): shorten the variant tag, keep `submit_MMDD_`.
 
+## Eval-server batch sizes (T4 16GB — measured VRAM, 2026-07-10)
+
+Peak allocator bytes measured on a 3090 (allocation is GPU-independent → valid for T4);
+worst case = every row padded to 512. T4 budget ≈ **13.5 GiB** (16GB − context − margin).
+Old zips shipped **bs=64** — far below the ceiling. Details/sweep tables: `experiments/ensemble/results.md`.
+
+| backbone | dtype | **max safe bs @512** | peak there | ship setting |
+|---|---|---|---|---|
+| granite-311m | fp16 | **512** (4.48 GiB — memory never binds) | 4.48 GiB | **bs 256** (E26 zips; `ENS_BS` env override) |
+| granite-311m | fp32 | 512 (8.94 GiB) | 8.94 GiB | bs 256 fine |
+| qwen3-0.6b | fp16 | **128** (9.99 GiB) — bs 256 = 18.9 GiB OVER | 9.99 GiB | bs 128 (2× the shipped 64; likely compute-bound anyway) |
+| qwen3-0.6b | fp32 | 64 only (10.85 GiB, tight) | 10.85 GiB | avoid fp32 qwen3 |
+| qwen3 depth-14 | fp16 | ~256 (est. ~½ of full qwen3's activations) | est ~10 GiB | unmeasured — verify before shipping |
+
+Also: pre-tokenize ONCE + length-sorted batching (3 vCPU on the server — per-batch tokenization
+in the loop wastes CPU time; the E26 script is the reference implementation).
+
 ## Built (already submitted)
 
 **Two independent kinds of pruning — kept in separate columns:**
