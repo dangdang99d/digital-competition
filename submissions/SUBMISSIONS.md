@@ -58,6 +58,7 @@ in the loop wastes CPU time; the E26 script is the reference implementation).
 | 15 | submit_0710_ens2_is3_richmeta.zip | granite-311m ×2 (E26-B ensemble) | richargs+richmeta | yes (union) | no | **no** | 0.7840 ens | 559M | **4:46** | **0.78498** | E26-B cross-serialization pair; slice preferred it over A, LB reversed — slice mis-ranks ensembles |
 | 16 | submit_0710_s43_full.zip | granite-311m (seed-43 reroll) | richargs | no | no | **no** | 0.7758 own-split (0.7955 seed-42 slice = LEAK) | 832M | **5:12** | **0.77427** | leak probe: LB confirms 0.7955 was memorization; seed reroll < champion |
 | 17 | submit_0710_ens3_is3_aum06_richmeta.zip | granite-311m ×3 (E26-C ensemble) | richargs×2+richmeta | yes (union) | no | **no** | 0.7850 ens | 836M | **6:52** | **0.78719** | 🥇 **CURRENT LB SOTA** (+0.0079 vs TTA era). Trio = direct-package ceiling (4th member breaks both caps); marginal member ≈2:22 |
+| 18 | submit_0710_ens3_w424.zip | granite-311m ×3 (E26 trio, weighted variant) | richargs×2+richmeta | yes | no | **no** | — (built outside main session; presumed 0.4/0.2/0.4 member weights — confirm composition) | ~836M | **6:49** | **0.78709** | weighted trio ≈ uniform trio (0.78719, −0.0001) — confirms the combiner shoot-out: weights don't beat uniform; uniform stays champion |
 
 \* fold-CV proxy per `combine/results.md` (may be calibrated); verify.
 † full_data CV = eval on a held-out slice, not the 14k val — high-variance, doesn't rank-order the models; trust LB.
