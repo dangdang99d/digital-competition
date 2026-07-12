@@ -29,8 +29,6 @@ python -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)' || \
     sed -i 's/scikit-learn==1.8.0/scikit-learn==1.7.2/' /tmp/reqs.txt
 pip install --no-cache-dir -r /tmp/reqs.txt
 
-echo 'export TQDM_DISABLE=1' >> /root/.bashrc
-
 # record what this host's cached image actually gave us (floating :latest tag)
 python -c "import sys, torch, sklearn; print(f'VERSIONS python={sys.version.split()[0]} torch={torch.__version__} sklearn={sklearn.__version__}')"
 
