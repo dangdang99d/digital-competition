@@ -32,6 +32,8 @@ working tree + live training). The table maps each group to its doc and experime
 | `research/ensemble` | [experiments/ensemble/results_e26.md](ensemble/results_e26.md) | E26 (checkpoint ensemble under submission constraints) |
 | `research/optuna` | [experiments/optuna/results.md](optuna/results.md) | E28 (optuna HPO, runs on **ocean2**) |
 | `research/compression` | [experiments/compression/results.md](compression/results.md) | **E31 combination SEARCH** + granite program board (status per method family, size↓ vs speed↑) — structured methods only; winning combo → the optimal model AFTER E30/E29 settle it; absorbs E4/E16/E16b/E18 follow-ups for granite |
+| `research/augmentation` | [experiments/augmentation/results.md](augmentation/results.md) | E32 (A: embedding-space noise FGM/R-Drop/NEFTune · B: structure-level hist_dropout/meta-jitter/view-mix) |
+| `research/moe` | [experiments/moe/results.md](moe/results.md) | E33 (jointly trained model-level MoE: 4 granite experts + controller, soft gate; FFN-level sparse PARKED) |
 
 ## Dashboard
 
@@ -70,9 +72,11 @@ working tree + live training). The table maps each group to its doc and experime
 | E26 | ensemble | **Checkpoint ensemble** — combine existing trained models (uniform softmax mean, NO weights/calibration) for the highest submittable score. Phase 0: screen ~20 checkpoints on the shared 3.5k held-out (all-pairs + greedy Caruana + disagreement); Phase 1: package best combo under constraints (2× granite fp16 + vocab-prune shape); Phase 2: submit. Constraint math: full qwen3 DEAD (9:18 alone); 2× granite fp32 ≈10:12 over; soup = constraint-free but needs new shared-init trainings (opt arm) | LB **0.77931** (granite+TTA) · non-TTA 0.77921 · screen ref champion 0.7803 | **Screen ✅** (26 models; greedy-4 0.7851; uniform mean beat every fitted combiner on honest CV) · **LB: pair A 0.78548 · pair B 0.78498 · trio 0.78719 🥇 SOTA** (6:52/836M = direct-package ceiling; 4th member breaks caps) · **1B distillation ❌** (4 students 0.7635–0.7728 < champion — in-sample teachers ≈ noisy labels + lost LS) | — | ✅ ens2 ×2 + ens3 (rows 14/15/17) + s43 probe | ✅ **DONE — trio = LB SOTA 0.78719** (+0.0079 vs TTA era). Slice under-predicts & mis-ranks ensembles (E8 again). Continuation: **E30** OOF campaign (honest teacher + E29 head data). [ensemble/results_e26.md](ensemble/results_e26.md) |
 | E27 | errorpred | **Error prediction** — label-free per-row estimate of "will the prediction be wrong" (test-applicable) + structure to recover the true label on flagged rows. Phase 1: MSP-decile × rank-1..4 confusion analysis on granite-LS e9 val logits. Phase 2 candidates (3-agent lit survey): A LS-damage audit + p-norm-logit fix · B assessor v2 (multi-model + CL/PVI-kNN features) · C CRL retrain · D SWA/SAM | E20 gate ceiling **0.854 AUROC** · granite-LS MSP→err **0.843** | **Phase 1 ✅: true ∈ top-4 ≥98.6% in every decile** · true in r1's group ≥0.95 even among wrongs · wrong→true=r2 51–65% · blind rank-swap dead (d1: keep 36% > swap 32%) → exploit needs an independent intra-group signal | [rank profile](errorpred/figures/true_rank_profile.png) · [rank2 confusion](errorpred/figures/rank2_confusion_by_decile.png) | ✅ `submit_0710_flip.zip` → **LB 0.77727 (−0.00011 vs champion 0.77738) — NEUTRAL; the +0.0012 slice gain did NOT transfer** (5:06, rule adds zero time) | ✅ **DONE — CLOSED 2026-07-10 (user decision + LB read).** Own-logit adjustment is information-bounded (1b/blind-swap/E6/E20 all dead; flip rule = LB wash). Durable insight: **cross-model signal breaks the MSP ceiling (assessor 0.8655 vs 0.8425)** — already cashed at full coverage by E26 ensembling, where effort redirects. [errorpred/results.md](errorpred/results.md) |
 | E28 | optuna | **Optuna HPO** (runs on **ocean3**, 2× 3090 both clean — moved off ocean2, which drew the suspect card `GPU-e6a9233a` as its GPU 0) — TPE search around the champion recipe (granite E8a richargs+LS full_data bf16) for performance maximization; init_seed fixed 42 (soup/ensemble-compatible winners) | champion full_data CV **0.7803** · single-model LB 0.77931 (TTA) / 0.77921 (qwen3_ls) | — | — | — | 🔵 **ACTIVE — design phase; search space + objective split awaiting user pick.** [optuna/results.md](optuna/results.md) |
-| E29 | stacking | **Learned head over the trio** (user opts, strict gate order: ① logreg on concatenated member OOF probs, null = uniform mean, gate ≥+0.002 honest CV → ② embedding-fusion head, concat 3×768 penultimate → linear/MLP → 14 → ③ per-row gating head, only if ② stalls). Ship = trio + winning head (head = KBs → packaging/time unchanged 6:52/836M); LB judges | uniform trio LB **0.78719** · w424 0.78709 (global weights ≈ uniform) · at 3.5k every fitted combiner LOST honest CV — E30's 70k OOF is the 20×-data retry | — | — | — | ⛔ **GATED** — needs (a) E30 phase-0 OOF data, (b) user ruling: does a trained head violate the no-calibration invariant? (uniform mean was exempted). Design in §E29 · data: [ensemble/results_e30.md](ensemble/results_e30.md) |
-| E30 | ensemble-oof | **E26 continuation — session-grouped OOF campaign + OOF-teacher distillation retry.** Phase 0: 15 fold-trainings (3 trio-member recipes × 5-fold `--session_fold`, 70k, E22 harvester skeleton upgraded: session-grouped folds · member recipes · probs AND penultimate embeddings) → the shared honest substrate for E29 + phase 1. Phase 1: distillation retry with OOF-harvested teacher (fixes 1B's in-sample near-one-hot harvest) + LS-in-CE finetune.py fix; gate: student ≥ champion 0.7803 → joins member pool. Byproduct: honest champion-recipe CL/PVI re-audit (E22 §4 ask) | trio LB **0.78719** (direct-package ceiling; 4th member breaks caps) · 1B students 0.7635–0.7728 ≪ champion 0.7803 (in-sample teachers ≈ noisy labels; plateau = champion−LS ≈ 0.7696) | — | — | — | ✅ **DONE 2026-07-12** — phase 0 ✅ (15/15 harvests; teacher MSP 0.749 vs 1B's ~0.99 → honest dark knowledge). Phase 1 ❌ **distillation closed for good**: best student 0.7754 (−0.0049); every OOF arm ≥ its 1B twin but ALL < champion; α dose-response points to α=0 → the trio's edge is inference-time averaging, not distillable into one 311m. Remaining value: OOF caches → E29 + CL/PVI re-audit. [ensemble/results_e30.md](ensemble/results_e30.md) |
+| E29 | stacking | **Learned head over the trio** (user opts, strict gate order: ① logreg on concatenated member OOF probs, null = uniform mean, gate ≥+0.002 honest CV → ② embedding-fusion head, concat 3×768 penultimate → linear/MLP → 14 → ③ per-row gating head, only if ② stalls). Ship = trio + winning head (head = KBs → packaging/time unchanged 6:52/836M); LB judges | uniform trio LB **0.78719** · w424 0.78709 (global weights ≈ uniform) · at 3.5k every fitted combiner LOST honest CV — E30's 70k OOF is the 20×-data retry | — | — | — | ❌ **CLOSED 2026-07-13 — uniform mean survives all 9 attempts** (4 arms × 2 objectives vs null 0.7745): best cell ①-balanced **+0.0007** (user's F1-objective diagnosis real, ≈+0.003, still under gate); ②-NLL/bal −0.046/−0.050 (capacity overfit) · ③-softF1 −0.0039 · ④ −0.0059/−0.0090 (gate collapses to e25c / batch-noisy soft-F1). Structural read: uniform averaging preserves member error-diversity at zero fitted params; every trained objective spends it. Honest-OOF uniform 0.7745 vs solos 0.764–0.767 reproduces the LB lift. Design in §E29 · data: [ensemble/results_e30.md](ensemble/results_e30.md) |
+| E30 | ensemble-oof | **E26 continuation — session-grouped OOF campaign + OOF-teacher distillation retry.** Phase 0: 15 fold-trainings (3 trio-member recipes × 5-fold `--session_fold`, 70k, E22 harvester skeleton upgraded: session-grouped folds · member recipes · probs AND penultimate embeddings) → the shared honest substrate for E29 + phase 1. Phase 1: distillation retry with OOF-harvested teacher (fixes 1B's in-sample near-one-hot harvest) + LS-in-CE finetune.py fix; gate: student ≥ champion 0.7803 → joins member pool. Byproduct: honest champion-recipe CL/PVI re-audit (E22 §4 ask) | trio LB **0.78719** (direct-package ceiling; 4th member breaks caps) · 1B students 0.7635–0.7728 ≪ champion 0.7803 (in-sample teachers ≈ noisy labels; plateau = champion−LS ≈ 0.7696) | — | — | — | ✅ **DONE 2026-07-12** — phase 0 ✅ honest OOF caches (validity: solo OOF 0.764–0.767 = fold logs; first harvest re-run after a fold-construction mismatch made it ~80% in-sample); teacher MSP 0.738; honest-OOF uniform mean 0.7745 reproduces the +0.008 LB ensemble lift. Phase 1 ❌ **distillation CLOSED** (honest teacher): students 0.7680–0.7753, all < champion 0.7803; α .5 > .7 ≫ 1, α=0 best → trio edge = inference-time averaging, not distillable. [ensemble/results_e30.md](ensemble/results_e30.md) |
 | E31 | compression | **Structured-compression combination SEARCH (granite)** — Stage A parallel axis screens (A1 depth incl. honest E16b rerun · A2 width FLAP-style · A3 FFN low-rank probe · A4 LTP ⛔ parked) each prune+recovery vs shared anchor; Stage B factorial over survivors, ONE joint recovery per combo, Pareto pick on (F1, ms/sample, params); Stage C transfer combo to the post-E30/E29 optimal model → package → LB. Base always: vocab-prune+fp16. Structured only (user: unstructured has no HW support) | champion recipe 0.7803 (anchor) · unpruned granite fp16 ms/sample | — | — | — | 🔲 **QUEUED** (user 2026-07-12) — awaits dispatch; A1 BI + A3 SVD probes are training-free starters. Board: [compression/results.md](compression/results.md) |
+| E32 | augmentation | **Training-time augmentation / noise** (professor's multi-view idea, adapted — translation/paraphrase closed by E15a + weak-semantic labels) — **A** embedding-space noise (A1 FGM adversarial · A2 R-Drop · A3 NEFTune) · **B** structure-level augmentation (B1 `--hist_dropout` screen — flag exists, never tested · B2 meta/field jitter · B3 richargs↔richmeta view mixing). All training-time: zero inference cost; winner lifts the single model AND adds a diverse ensemble-member candidate | champion E8a+LS richargs full_data CV **0.7803** (shared from-scratch anchor) | — | — | — | 🔲 **QUEUED** (user 2026-07-13) — design: [augmentation/results.md](augmentation/results.md) |
+| E33 | moe | **Model-level MoE, jointly trained** (user 2026-07-13: 1 controller · 4 experts · soft gate in training; controller = **shared trunk**, pinned) — shared vocab-pruned emb → shared granite trunk L1–6 (the "cutoff granite" IS the trunk) → gate MLP on pooled trunk + structure scalars (log1p hist-count, first-step flag) → 4 expert stacks L7–22 w/ own heads; LS-CE on gated prob blend + load-balance aux + entropy floor (anti-collapse, E29④ lesson); from scratch, champion recipe, shared init. THE untested combination mechanism: experts co-adapt under the router (all prior combos were post-hoc over frozen models). Rejected stage-1: separate cutoff controller (duplicate compute) · expert-features→gate (E29④ shape, kills top-k) → stage-2 only. FFN-level sparse upcycling ⛔ PARKED | champion 0.7803 (single anchor) · **uniform mean of its OWN 4 experts, gate bypassed** (the scientific null, free at eval) · trio LB 0.78719 (context) | — | — | — | 🔲 **QUEUED** (user 2026-07-13) — design: [moe/results.md](moe/results.md); T4 proj ~7:15 full / ~4:00 top-2; training needs vast GO |
 
 Status legend: ⏸ blocked-external · ⛔ gated · 🔎 analysis · 🏃 running · ✅ done · ❌ refuted
 New figures → `experiments/<branch>/figures/`; the `figures/` root holds pre-branch legacy plots.
@@ -415,9 +419,97 @@ submission conservative (2 members). LB judges (3.5k slice mis-ranks — E8 less
 - **Status:** 🔲 QUEUED — awaits dispatch approval (probes A1/A3 are free candidates to
   start). **Result:** —
 
+### E32 · Training-time augmentation / noise (user 2026-07-13) — 🔲 QUEUED — design: [augmentation/results.md](augmentation/results.md)
+
+- **Objective:** professor's suggestion (feed multiple augmented inputs, average outputs)
+  adapted to this task. Text-space augmentation is closed (E15a translation NO-GO; labels
+  weakly semantic → paraphrase not label-preserving; E24: input is low-redundancy, token
+  drops hurt), so inject noise where language doesn't matter: **(A) embedding space** and
+  **(B) the serialization structure**. All arms are TRAINING-time only — zero inference
+  cost, packaging/timing unchanged; a winner both lifts the single model and yields a
+  diverse-regime member candidate for E26-style ensembling (which is where the "averaged
+  outputs" half of the idea is already cashed, +0.008 LB).
+- **Track A — embedding-space noise (language-agnostic):**
+  - **A1 FGM adversarial training** (top pick): adversarial perturbation of the embedding
+    layer each step (Miyato et al.); start ε=1.0. ~1.5–2× train time. Official-code
+    invariant applies — diff against the most-starred reference impl, note which.
+  - **A2 R-Drop:** two dropout forward passes + symmetric-KL consistency (α=1 first;
+    official repo `dropreg/R-Drop`). ⚠ interaction with LS ε=0.1 must be kept — LS stays
+    in the CE term. Absorbs the old backlog rdrop item (never finished on the old box).
+  - **A3 NEFTune-style uniform embedding noise:** cheapest (few lines); run only if
+    A1/A2 show signal or a GPU is otherwise idle.
+- **Track B — structure-level augmentation (label-preserving by construction/evidence):**
+  - **B1 `--hist_dropout` screen:** flag ALREADY implemented (`serialize()` drops history
+    events per-epoch with prob p, `src/finetune.py:1144` dynamic path) but never screened.
+    p ∈ {0.05, 0.1, 0.2}. Eval always un-augmented (docstring: never use for eval).
+  - **B2 meta/field jitter:** random meta-subfield dropout (E24-B evidence: meta tail
+    drops are lossless) + history-truncation jitter (also softens the intrinsic
+    first-step weakness by making short-history inputs common in training). Needs new
+    additive `serialize()` args, default-off (backward-compat invariant).
+  - **B3 view mixing:** per-sample random richargs↔richmeta rendering each epoch (E25c:
+    equal info, 0.7801 ≈ 0.7803) → view-invariant model; enables an optional later
+    single-model test-time view-averaging probe (out of scope here).
+- **Design:** champion recipe (E8a+LS richargs full_data bf16) + exactly ONE lever per
+  arm, **from scratch — never warm-start** (E24 recovery trap); all arms share the same
+  from-scratch anchor + eval slice. Stage 1 = one config per arm (5 trainings: A1 A2 B1
+  B2 B3 ≈ one fleet wave); stage 2 = sweep the strength knob of anything that clears the
+  gate; stage 3 (optional) = best-A × best-B combo only if BOTH clear.
+- **Gates:** promote at ≥ +0.003 full_data CV vs champion 0.7803. Marginal +0.001–0.003
+  → keep as ensemble-member candidate (diverse training regime, zero inference cost),
+  judged by honest OOF / LB, not the slice (E8/E26 invariant: slice mis-ranks — LB judges
+  any final claim).
+- **Cost:** each arm ≈ one granite full-FT ~4–5 h/3090 (A1/A2 ~2× that: extra
+  forward/backward or double pass).
+- **Status:** 🔲 QUEUED. **Result:** —
+
+### E33 · Model-level MoE — jointly trained 4 experts + controller (user 2026-07-13) — 🔲 QUEUED — design: [moe/results.md](moe/results.md)
+
+- **Objective:** the one combination mechanism never tried — **joint training** of experts
+  and a router (all prior combos were post-hoc over frozen, independently trained models:
+  uniform mean 🏆 0.78719 · w424 tie · E29 stackers/gates ≤ null · distillation closed
+  twice). Hypothesis: experts specialize *because* the router exists (co-adaptation),
+  which frozen-member gating (E29 ③/④) could never test.
+- **Architecture (user-picked; controller pinned 2026-07-13):** 1 controller · 4 experts ·
+  **soft gate during training**, **shared-trunk pre-expert routing**: shared vocab-pruned
+  granite embedding (emb = 64.6% of params — sharing it is what fits 4 experts in the 1GB
+  zip; 4 independent granites are DEAD, E26: 4th member breaks caps) → **shared trunk =
+  granite layers 1–6** (the "cutoff granite" IS the trunk, not a separate model) → gate
+  MLP on mask-aware mean-pooled trunk states + structure scalars (log1p hist-count,
+  first-step flag) → 4 expert stacks (layers 7–22, own 14-class heads) → gate-weighted
+  mean of expert probs. Pre-expert routing = canonical MoE (Jacobs g(x); Switch/Mixtral
+  route on the hidden state entering the experts). Rejected for stage 1: separate cutoff
+  controller (duplicates compute/params) · expert-features→gate (E29④ collapse shape,
+  forfeits top-k, rich-get-richer) — the latter is the named stage-2 gate-input variant.
+  k=6 is a knob: sweep {3,6,9} in stage 2 on signal.
+- **Loss:** LS-CE ε=0.1 on the blend + Switch-style load-balance aux + gate-entropy
+  floor — anti-collapse guards mandatory (E29 ④: NLL gate provably collapses onto the
+  best-calibrated member). Official-code invariant: diff aux loss vs HF
+  Mixtral/Switch `load_balancing_loss_func`.
+- **Protocol:** champion recipe (richargs + LS + full_data + bf16), **from scratch**
+  (E24 trap), all experts same pretrained init + `--init_seed 42` heads (E12). One
+  stage-1 training. Read-outs: blend vs champion 0.7803 · blend vs **uniform mean of its
+  own 4 experts (gate bypassed — the scientific null, free at eval)** · per-expert solos ·
+  gate-weight histogram/entropy (collapse diagnostic) · first-step slice.
+- **Gates:** package ≥ +0.003 vs 0.7803; marginal +0.001–0.003 → ensemble-member
+  candidate judged by honest OOF/LB (slice mis-ranks). Gate collapse (max mean weight
+  >~0.9, blend ≈ best expert) → negative result, close. Stage 2 (only on clear/near-miss):
+  expert dropout · gate-input variants · top-2-at-inference probe (time lever).
+- **Constraints:** shared trunk pays for itself — projected T4 time (6+4×16)/22 ≈ 3.2
+  pass-equivalents ≈ **~7:15** (vs ~9:10 for 4 independent granites); gate fires at the
+  fork → **top-2 routing ≈ ~4:00** if over budget; first submission = most conservative.
+  Ship shape vocab-prune + fp16 + parity; learned gate reweights member opinions → flag
+  the calibration-ruling question to user with the zip (E29 precedent).
+- **⛔ PARKED sub-arm:** FFN-level sparse MoE / upcycling — user unsure (2026-07-13);
+  also FFN = 18.7% of params (small prize) + upcycling = warm-start regime (E24 trap).
+- **Implementation:** isolated `src/moe_model.py` + `src/moe_finetune.py` reusing
+  data/serialize plumbing; `src/finetune.py` untouched (additive invariant). Shared trunk
+  cuts training to ~3.2 pass-equivalents; if one 3090 still can't hold it at champion bs
+  → grad-ckpt or expert-parallel on vast. **Needs vast GO before dispatch.**
+- **Status:** 🔲 QUEUED — implementation in progress (2026-07-13); nothing launched. **Result:** —
+
 ### Backlog / housekeeping
 - rdrop (disc task 0) never finished on the old box — superseded in spirit by supcon's
-  regression; rerun on a spare GPU only if idle capacity exists.
+  regression; **absorbed by E32-A2** (R-Drop arm, champion recipe).
 - FFN+attn combined probe (E3 extension: all four attn projections too, Q/O = 2× KV).
 - au-generator robustness view for whichever model ships (au = 7% of train; test mix unknown).
 

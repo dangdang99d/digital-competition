@@ -1,11 +1,12 @@
 # Branch: ensemble-oof (E30) — session-grouped OOF campaign + honest-teacher distillation retry
 
 **STATUS: ✅ DONE (2026-07-12).** E26 continuation ([results_e26.md](results_e26.md): trio LB
-0.78719 = direct-package ceiling). Phase 0 ✅ — 15/15 fold-trainings, full-coverage OOF caches,
-**teacher MSP 0.749** (honest dark knowledge; 1B's in-sample teachers were ~0.99). Phase 1 ❌ —
-**distillation closed for good**: every OOF student beat its 1B twin yet ALL landed below the
-champion (best 0.7754, −0.0049); the trio's edge is inference-time averaging, not distillable.
-Remaining value = the OOF caches → **E29** learned head + CL/PVI re-audit.
+0.78719 = direct-package ceiling). Phase 0 ✅ — honest OOF caches for all 70k rows (first
+harvest pass was invalidated by a fold-construction mismatch and fully re-run; validity check:
+member solo OOF mF1 0.764–0.767 = the fold-models' own logs). Phase 1 ❌ — honest-teacher
+students all below champion (best 0.7753, −0.0050): **distillation closed; the trio's edge is
+inference-time averaging, not distillable.** The caches also powered E29 (learned heads — all
+arms failed to beat uniform mean; see [results_e29.md](results_e29.md)).
 
 ## Method
 
@@ -31,19 +32,24 @@ so their outputs are memorized near-one-hots (what sank E26-1B).
 Scripts: `oof_harvest.py` (1–4) · `build_oof_teacher.py` (5) · `finetune.py --distill_from
 --loss ls` (6).
 
-## Phase 0 results — ✅ COMPLETE (2026-07-12, ~3h wall on 4×3090, ≈$1.5)
+## Phase 0 results — ✅ COMPLETE (2026-07-12; ~3.5h wall on 4×3090 incl. one full re-harvest, ≈$2)
 
-15/15 fold-trainings + harvests, losses nominal (1.23 → ~0.94 by ep 1), no NaN; all
-merges full-coverage (70,000 rows × probs + 768-d emb per member).
+15/15 fold-trainings (losses nominal, no NaN) + harvests + full-coverage merges (70,000 rows ×
+probs + 768-d emb per member). ⚠️ Methodological caveat that forced a re-harvest: fold
+construction must byte-match the training splits — the first pass diverged (~20% fold overlap
+→ ~80% in-sample), detected because member "OOF" mF1 read 0.83 vs the fold-models' own
+0.76–0.77 logs. Honest-pass validity checks: solo OOF mF1 is3 0.7668 · aum06 0.7644 ·
+e25c 0.7664 ✓.
 
-**Teacher softness — the OOF thesis confirmed:**
-
-| teacher | MSP mean | MSP p95 | vs 1B in-sample teachers |
+| teacher | MSP mean | MSP p95 | note |
 |---|---|---|---|
-| trio (is3+aum06+e25c) | **0.749** | 0.912 | ~0.99 everywhere → real dark knowledge recovered |
-| is3 single (born-again control) | 0.742 | 0.914 | 〃 |
+| trio (is3+aum06+e25c) | **0.738** | 0.912 | genuinely soft — 1B's in-sample teachers were ~0.99 |
+| is3 single (born-again control) | 0.733 | 0.913 | 〃 |
 
-## Phase 1 (OOF-teacher students) — ❌ CLOSED (run 2026-07-12)
+Honest by-product: uniform mean over the three OOF prob sets scores **0.7745** vs solos
+0.764–0.767 — the +0.008 ensemble lift reproduces the LB gain (+0.0079) on 70k honest rows.
+
+## Phase 1 (OOF-teacher students) — ❌ CLOSED (honest run 2026-07-12)
 
 Four students (mirror the E26-1B decomposition; one wave on 4 GPUs), all from-scratch
 champion recipe + full_data, eval on the shared 3.5k slice:
@@ -58,25 +64,23 @@ champion recipe + full_data, eval on the shared 3.5k slice:
 (1B's 5-member qwen3 teacher has no analogue — no OOF caches for champion/qwen3; +10 trainings
 if ever wanted.) Gate: any student ≥ 0.7803 → member pool → re-run E26 greedy selection.
 
-**Results (2026-07-12, all clean):**
+**Results (honest teacher, MSP 0.749; all runs clean):**
 
-| # | teacher / setting | slice mF1 (Δ vs champion 0.7803) | vs 1B twin |
+| # | teacher / setting | slice mF1 (Δ vs champion 0.7803) | 1B in-sample twin |
 |---|---|---|---|
-| s1 | trio OOF · α .7 · T2 · +LS | **0.7754 (−0.0049)** | +0.0063 |
-| s3 | trio OOF · α .5 · T2 · +LS | 0.7741 (−0.0062) | — |
-| s4 | is3 OOF (born-again) · α .7 · +LS | 0.7726 (−0.0077) | ±0.000 |
-| s2 | trio OOF · α 1 · T1 (pure soft) | 0.7662 (−0.0141) | +0.0027 |
+| s3 | trio OOF · α .5 · T2 · +LS | **0.7753 (−0.0050)** | — |
+| s4 | is3 OOF (born-again) · α .7 · +LS | 0.7722 (−0.0081) | 0.7728 |
+| s1 | trio OOF · α .7 · T2 · +LS | 0.7697 (−0.0106) | 0.7691 |
+| s2 | trio OOF · α 1 · T1 (pure soft) | 0.7680 (−0.0123) | 0.7635 |
 
-**Verdict — phase 1 ❌ CLOSED, this time with the real answer.** Honest teachers fixed what the
-1B post-mortem predicted (every OOF arm ≥ its in-sample twin; s2's sign flip = harvest honesty
-confirmed), yet every student stays below the champion, and the α dose-response is monotone
-toward α=0: ANY teacher signal added to the champion recipe hurts. With teacher softness now
-genuine (MSP 0.749), the conclusion is structural, not procedural: **the trio's edge is not
-distillable into a single granite-311m** — the teacher's spread mass sits on intrinsically
-ambiguous rows (E19 prior), carrying no separating signal beyond labels+LS; the ensemble's
-value is inference-time averaging of diverse errors, which compression removes by construction.
-Distillation on this task is closed for good (in-sample AND honest variants both measured).
-E30's remaining value = the OOF caches themselves → E29 learned head + CL/PVI re-audit.
+**Verdict — phase 1 ❌ CLOSED (valid this time).** With a genuinely honest teacher the
+students still all land below the champion; teacher weight is monotone-harmful at the top of
+the curve (α .5 > .7 ≫ 1.0, and α=0 — the plain LS champion — beats them all). The teacher's
+spread mass sits on intrinsically ambiguous rows (E19 prior) and carries no separating signal
+beyond labels+LS: **the trio's edge is inference-time averaging of diverse errors, which
+compression into one model removes by construction.** Ensemble→single distillation on this
+task is closed — measured under in-sample teachers (1B), contaminated-OOF teachers (struck
+first wave: 0.7754/0.7741/0.7726/0.7662), and honest-OOF teachers (above).
 
 ## Hand-off
 
