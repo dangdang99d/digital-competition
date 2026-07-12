@@ -71,6 +71,7 @@ def harvest(member, fold, batch_size=64):
 
     from src.data import ALL_CLASSES, CLASS_TO_ID, build_texts, load_samples, \
         session_fold_indices
+    os.makedirs(CACHE, exist_ok=True)
 
     samples, labels = load_samples("./data")
     y = np.array([CLASS_TO_ID[a] for a in labels])
@@ -114,6 +115,7 @@ def merge(member):
 
     from src.data import load_samples
 
+    os.makedirs(CACHE, exist_ok=True)
     samples, labels = load_samples("./data")
     n = len(samples)
     probs = emb = None
