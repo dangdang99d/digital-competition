@@ -65,8 +65,12 @@ def resolve_ckpt(run_dir):
 
 
 def harvest(member, fold, batch_size=64):
+    import numpy as np
     import torch
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+    from src.data import ALL_CLASSES, CLASS_TO_ID, build_texts, load_samples, \
+        session_fold_indices
 
     samples, labels = load_samples("./data")
     y = np.array([CLASS_TO_ID[a] for a in labels])
@@ -106,6 +110,10 @@ def harvest(member, fold, batch_size=64):
 
 
 def merge(member):
+    import numpy as np
+
+    from src.data import load_samples
+
     samples, labels = load_samples("./data")
     n = len(samples)
     probs = emb = None
