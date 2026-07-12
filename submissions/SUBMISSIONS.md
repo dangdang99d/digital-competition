@@ -20,7 +20,7 @@ zips ≤32 chars (aim ≤28): shorten the variant tag, keep `submit_MMDD_`.
 
 Peak allocator bytes measured on a 3090 (allocation is GPU-independent → valid for T4);
 worst case = every row padded to 512. T4 budget ≈ **13.5 GiB** (16GB − context − margin).
-Old zips shipped **bs=64** — far below the ceiling. Details/sweep tables: `experiments/ensemble/results.md`.
+Old zips shipped **bs=64** — far below the ceiling. Details/sweep tables: `experiments/ensemble/results_e26.md`.
 
 | backbone | dtype | **max safe bs @512** | peak there | ship setting |
 |---|---|---|---|---|
