@@ -450,7 +450,7 @@ def make_distill_trainer(trainer_cls, alpha, temperature, ce_mode="ce",
     return _DistillTrainer
 
 
-def make_aux_trainer(base_cls, rdrop=0.0, supcon=None):
+def make_aux_trainer(base_cls, rdrop=0.0, supcon=None, ce_mode="ce", label_smoothing=0.1):
     """Trainer with optional boundary-sharpening losses (all train-only, eval is
     plain CE):
 
@@ -463,8 +463,14 @@ def make_aux_trainer(base_cls, rdrop=0.0, supcon=None):
                             supplies positives, so no batch-composition surgery;
                             group_w > 1 upweights SAME-GROUP negatives (read vs grep)
                             in the denominator — the boundaries we actually lose on.
+      ce_mode="ls"        — E32-A2 fix (mirrors the E30 distill fix): every training
+                            CE term above uses label smoothing `label_smoothing`, so
+                            --loss ls survives alongside the aux terms instead of
+                            being displaced (the E26-1B failure class). "ce" (default)
+                            keeps the pre-E32 behavior byte-identical.
     """
     import torch.nn.functional as F
+    ls_eps = label_smoothing if ce_mode == "ls" else 0.0
 
     class _AuxTrainer(base_cls):
         def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
@@ -477,16 +483,23 @@ def make_aux_trainer(base_cls, rdrop=0.0, supcon=None):
             if not model.training:               # eval path: plain CE
                 return (loss, outputs) if return_outputs else loss
             labels = inputs["labels"]
+            if ce_mode == "ls" and weight is None:
+                loss = F.cross_entropy(outputs.logits.float(), labels,
+                                       label_smoothing=ls_eps)
             if weight is not None:
-                ce = F.cross_entropy(outputs.logits.float(), labels, reduction="none")
+                ce = F.cross_entropy(outputs.logits.float(), labels, reduction="none",
+                                     label_smoothing=ls_eps)
                 loss = (ce * weight).sum() / weight.sum()
             if rdrop:
                 out2 = model(**inputs)           # fresh dropout masks
+                ce2 = (out2.loss if ce_mode == "ce" else
+                       F.cross_entropy(out2.logits.float(), labels,
+                                       label_smoothing=ls_eps))
                 lp1 = F.log_softmax(outputs.logits.float(), dim=-1)
                 lp2 = F.log_softmax(out2.logits.float(), dim=-1)
                 kl = 0.5 * (F.kl_div(lp1, lp2, log_target=True, reduction="batchmean")
                             + F.kl_div(lp2, lp1, log_target=True, reduction="batchmean"))
-                loss = 0.5 * (loss + out2.loss) + rdrop * kl
+                loss = 0.5 * (loss + ce2) + rdrop * kl
             if supcon is not None:
                 loss = loss + supcon["lam"] * self._supcon_loss(model, outputs, inputs)
             return (loss, outputs) if return_outputs else loss
@@ -588,6 +601,176 @@ def make_loss_trainer(base_cls, mode, focal_gamma=2.0, label_smoothing=0.1,
             return (loss, outputs) if return_outputs else loss
 
     return _LossTrainer
+
+
+def make_fgm_trainer(base_cls, eps):
+    """E32-A1: FGM adversarial training (Miyato et al., adversarial_text) — after the
+    clean forward+backward, perturb the input-embedding WEIGHT by r = eps * g/||g||2
+    (g = its current grad; the direction is grad-scale-invariant, so fp16 loss
+    scaling can't distort it), run one adversarial forward+backward on the same
+    batch, then restore the weight exactly (clone, not add/sub round-trip). PyTorch
+    port of the standard FGM class (weight-matrix perturbation, attack after the
+    clean backward, restore AFTER the adversarial backward); divergence from
+    Miyato's TF original: perturbs the shared weight once per step, not per-example
+    inputs. Under --grad_accum the attack uses the grads accumulated so far — same
+    as the reference class.
+
+    Wraps the FINAL trainer_cls, so both passes inherit whatever compute_loss the
+    recipe selected (e.g. LS via make_loss_trainer, rdrop via make_aux_trainer).
+    Reported loss stays the CLEAN loss (reference behavior). ~2x step cost."""
+
+    class _FGMTrainer(base_cls):
+        def training_step(self, model, inputs, num_items_in_batch=None):
+            clean_loss = super().training_step(model, inputs, num_items_in_batch)
+            emb = self.accelerator.unwrap_model(model).get_input_embeddings().weight
+            g = emb.grad
+            if g is None:                        # e.g. frozen embeddings (LoRA)
+                if not getattr(self, "_fgm_warned", False):
+                    self._fgm_warned = True
+                    logger.warning("FGM: input-embedding grad is None — attack "
+                                   "skipped (frozen embeddings?)")
+                return clean_loss
+            norm = g.detach().norm()
+            if norm == 0 or torch.isnan(norm):
+                return clean_loss
+            backup = emb.data.clone()
+            emb.data.add_(g.detach(), alpha=float(eps) / float(norm))
+            adv_inputs = self._prepare_inputs(inputs)
+            with self.compute_loss_context_manager():
+                adv_loss = self.compute_loss(model, adv_inputs,
+                                             num_items_in_batch=num_items_in_batch)
+            # mirror Trainer.training_step's (v4.51.3) normalization exactly, so the
+            # adversarial gradient is scaled identically to the clean one
+            if self.args.n_gpu > 1:
+                adv_loss = adv_loss.mean()
+            if not self.model_accepts_loss_kwargs and self.compute_loss_func is None:
+                adv_loss = adv_loss / self.args.gradient_accumulation_steps
+            self.accelerator.backward(adv_loss)
+            emb.data.copy_(backup)               # restore after the adv backward
+            return clean_loss
+
+    return _FGMTrainer
+
+
+def make_pgd_trainer(base_cls, eps, alpha, k):
+    """E34-B: PGD adversarial training (Madry et al., ICLR'18) — iterated FGM on the
+    input-embedding WEIGHT: K steps of alpha * g/||g||2, each followed by projecting
+    the accumulated perturbation back onto the eps-ball (Frobenius) around the clean
+    weight; drops FGM's one-step local-linearity assumption. Weight-matrix
+    perturbation, same divergence from Madry's per-example input attack as our FGM
+    port. Semantics match the standard PGD class (final gradient = accumulated clean
+    grads + adversarial grads at the WORST point; intermediate passes only steer the
+    attack) with one mechanical divergence, documented here: intermediate attack
+    directions come from torch.autograd.grad(adv_loss, emb) — the .grad accumulators
+    are never zeroed or restored, so the reference's full-grad backup/zero/restore
+    dance (a whole model-size clone per step, OOMs an 8GB card) is unnecessary, and
+    --grad_accum accumulation is untouched by construction. Weight restored exactly
+    (clone/copy_). Direction/projection are grad-scale-invariant (fp16-safe).
+
+    Wraps the FINAL trainer_cls, so every pass inherits the recipe's compute_loss
+    (LS / rdrop etc.). Reported loss stays the CLEAN loss. ~(K+1)x step cost."""
+
+    class _PGDTrainer(base_cls):
+        def training_step(self, model, inputs, num_items_in_batch=None):
+            clean_loss = super().training_step(model, inputs, num_items_in_batch)
+            unwrapped = self.accelerator.unwrap_model(model)
+            emb = unwrapped.get_input_embeddings().weight
+            if emb.grad is None:                 # e.g. frozen embeddings (LoRA)
+                if not getattr(self, "_pgd_warned", False):
+                    self._pgd_warned = True
+                    logger.warning("PGD: input-embedding grad is None — attack "
+                                   "skipped (frozen embeddings?)")
+                return clean_loss
+            emb_backup = emb.data.clone()
+            adv_inputs = self._prepare_inputs(inputs)
+            g = emb.grad.detach()                # step 0 direction = clean grad
+            for t in range(int(k)):
+                norm = g.norm()
+                if norm == 0 or torch.isnan(norm):
+                    break
+                emb.data.add_(g, alpha=float(alpha) / float(norm))
+                delta = emb.data - emb_backup
+                dnorm = delta.norm()
+                if dnorm > eps:                  # project ||delta||_2 <= eps
+                    emb.data.copy_(emb_backup).add_(delta, alpha=float(eps) / float(dnorm))
+                del g, delta                     # free emb-sized temps BEFORE the adv
+                #                                  forward (they OOM an 8GB card)
+                with self.compute_loss_context_manager():
+                    adv_loss = self.compute_loss(model, adv_inputs,
+                                                 num_items_in_batch=num_items_in_batch)
+                if t != int(k) - 1:              # direction-only: don't touch .grad
+                    g = torch.autograd.grad(adv_loss, emb)[0].detach()
+                    del adv_loss
+                else:                            # final pass ADDS to the clean grads;
+                    # mirror Trainer.training_step's (v4.51.3) normalization exactly
+                    if self.args.n_gpu > 1:
+                        adv_loss = adv_loss.mean()
+                    if (not self.model_accepts_loss_kwargs
+                            and self.compute_loss_func is None):
+                        adv_loss = adv_loss / self.args.gradient_accumulation_steps
+                    self.accelerator.backward(adv_loss)
+            emb.data.copy_(emb_backup)           # restore after the last adv backward
+            return clean_loss
+
+    return _PGDTrainer
+
+
+def make_awp_trainer(base_cls, gamma, adv_lr, start_epoch):
+    """E34-C: AWP — Adversarial Weight Perturbation (Wu et al., NeurIPS'20) — after
+    the clean backward, step every trainable `*weight*` tensor toward its gradient by
+    adv_lr * ||w|| * g/(||g||+1e-6) (relative-norm step), clamp elementwise into the
+    box w0 ± gamma*|w0|, run ONE adversarial forward+backward on the same batch (its
+    gradient ADDS to the clean one), then restore every perturbed tensor exactly.
+    PyTorch port of the standard Kaggle AWP class (Feedback-Prize lineage: adv_param
+    ="weight" name filter; attack after the clean backward, restore after the
+    adversarial backward). Explicit flat-minima training — ➖ prior: E13 SAM (same
+    family) closed for near-zero variance headroom. Gated by --awp_start_epoch:
+    early training is too unstable to attack (reference behavior).
+
+    Wraps the FINAL trainer_cls; reported loss stays the CLEAN loss. ~2x step cost
+    plus a one-step backup of every perturbed tensor (~1 model-size alloc)."""
+
+    class _AWPTrainer(base_cls):
+        def training_step(self, model, inputs, num_items_in_batch=None):
+            clean_loss = super().training_step(model, inputs, num_items_in_batch)
+            if (self.state.epoch or 0.0) < start_epoch:
+                return clean_loss
+            unwrapped = self.accelerator.unwrap_model(model)
+            backup = {}
+            for n, p in unwrapped.named_parameters():
+                if not p.requires_grad or p.grad is None or "weight" not in n:
+                    continue
+                g = p.grad.detach()
+                gnorm = g.norm()
+                if gnorm == 0 or torch.isnan(gnorm):
+                    continue
+                backup[n] = p.data.clone()
+                wnorm = backup[n].norm()
+                p.data.add_(g, alpha=float(adv_lr) * float(wnorm) / (float(gnorm) + 1e-6))
+                box = gamma * backup[n].abs()    # elementwise |delta_i| <= gamma*|w0_i|
+                p.data.copy_(torch.min(torch.max(p.data, backup[n] - box),
+                                       backup[n] + box))
+            if not backup:
+                if not getattr(self, "_awp_warned", False):
+                    self._awp_warned = True
+                    logger.warning("AWP: no perturbable *weight* grads — attack skipped")
+                return clean_loss
+            adv_inputs = self._prepare_inputs(inputs)
+            with self.compute_loss_context_manager():
+                adv_loss = self.compute_loss(model, adv_inputs,
+                                             num_items_in_batch=num_items_in_batch)
+            # mirror Trainer.training_step's (v4.51.3) normalization exactly
+            if self.args.n_gpu > 1:
+                adv_loss = adv_loss.mean()
+            if not self.model_accepts_loss_kwargs and self.compute_loss_func is None:
+                adv_loss = adv_loss / self.args.gradient_accumulation_steps
+            self.accelerator.backward(adv_loss)
+            for n, p in unwrapped.named_parameters():
+                if n in backup:
+                    p.data.copy_(backup[n])      # restore after the adv backward
+            return clean_loss
+
+    return _AWPTrainer
 
 
 def mine_boundary_weights(model, tok, texts_tr, max_len, weight, margin, device):
@@ -801,7 +984,43 @@ def main():
     ap.add_argument("--rdrop", type=float, default=0.0,
                     help="R-Drop: second forward pass with fresh dropout, symmetric-KL "
                          "consistency penalty with this weight (0 = off). Noise-"
-                         "compatible boundary sharpening; ~doubles train compute")
+                         "compatible boundary sharpening; ~doubles train compute. "
+                         "E32-A2: combines with --loss ls (LS stays in both CE terms)")
+    ap.add_argument("--fgm_eps", type=float, default=0.0,
+                    help="E32-A1 FGM adversarial training: after the clean backward, "
+                         "perturb the input-embedding weight by eps*grad/||grad||_2 "
+                         "(Miyato et al.), add the adversarial loss's gradient, restore "
+                         "the weight. 0 = off (training path unchanged). ~2x step cost. "
+                         "Composes with --loss ls / --rdrop; NOT with --distill_from / LTP")
+    ap.add_argument("--pgd_eps", type=float, default=0.0,
+                    help="E34-B PGD adversarial training: iterated FGM on the input-"
+                         "embedding weight — --pgd_k steps of --pgd_alpha*grad/||grad||_2, "
+                         "each projected back onto this eps-ball around the clean weight; "
+                         "clean grads restored before the final adversarial backward. "
+                         "0 = off. ~(K+1)x step cost. Composes with --loss ls / --rdrop; "
+                         "NOT with --fgm_eps / --awp_gamma / --distill_from / LTP")
+    ap.add_argument("--pgd_alpha", type=float, default=0.3,
+                    help="PGD per-step size (E34-B stage-1: 0.3)")
+    ap.add_argument("--pgd_k", type=int, default=3,
+                    help="PGD attack steps (E34-B stage-1: 3)")
+    ap.add_argument("--awp_gamma", type=float, default=0.0,
+                    help="E34-C AWP adversarial WEIGHT perturbation: step every trainable "
+                         "*weight* tensor by --awp_lr*||w||*grad/||grad||, clamped "
+                         "elementwise into w0 +- gamma*|w0|; one adversarial backward adds "
+                         "to the clean grad, weights restored exactly. 0 = off. ~2x step "
+                         "cost from --awp_start_epoch on. ➖ prior: E13 SAM (same flat-"
+                         "minima family) closed. NOT with --fgm_eps / --pgd_eps / "
+                         "--distill_from / LTP")
+    ap.add_argument("--awp_lr", type=float, default=1e-4,
+                    help="AWP relative step size (E34-C stage-1: 1e-4)")
+    ap.add_argument("--awp_start_epoch", type=float, default=1.0,
+                    help="enable AWP once trainer state.epoch reaches this (default 1.0 "
+                         "= skip the first epoch; early training too unstable to attack)")
+    ap.add_argument("--neftune_alpha", type=float, default=0.0,
+                    help="E32-A3 NEFTune: uniform noise on the embedding outputs during "
+                         "training, scale alpha/sqrt(seq_len*dim), via HF Trainer's "
+                         "built-in neftune_noise_alpha (= the official neelsjain/NEFTune "
+                         "hook; train-only, removed at eval/save). 0 = off (unchanged)")
     ap.add_argument("--supcon", type=float, default=0.0,
                     help="weight of a supervised-contrastive auxiliary loss on the "
                          "pooled embedding (0 = off). Uses a cross-batch memory queue "
@@ -850,8 +1069,10 @@ def main():
                          "multiclass focal loss (see --focal_gamma); ls = CE with "
                          "label smoothing (see --label_smoothing); wce = class-weighted "
                          "CE ('balanced' inverse-freq weights); la = logit-adjusted loss "
-                         "(train-prior log-shift, see --la_tau). Not combinable "
-                         "with --distill_from/--rdrop/--supcon/--hard_boundary")
+                         "(train-prior log-shift, see --la_tau). ls additionally combines "
+                         "with --distill_from (E30 fix) and --rdrop/--supcon/--hard_boundary "
+                         "(E32 fix: LS inside the aux CE terms); focal/wce/la combine with "
+                         "none of those")
     ap.add_argument("--focal_gamma", type=float, default=2.0,
                     help="focusing parameter gamma for --loss focal")
     ap.add_argument("--label_smoothing", type=float, default=0.1,
@@ -1230,8 +1451,13 @@ def main():
         group_by_length=args.group_by_length,          # cut padding waste at small batch
         eval_strategy=("no" if args.all_data else "epoch"), **ckpt_kw,
         bf16=use_bf16, fp16=(device == "cuda" and not use_bf16),
+        # E32-A3: None (the TrainingArguments default) when the flag is 0/off
+        neftune_noise_alpha=(args.neftune_alpha if args.neftune_alpha > 0 else None),
         report_to="none", seed=init_seed,
     )
+    if args.neftune_alpha > 0:
+        logger.info(f"NEFTune embedding noise: alpha={args.neftune_alpha} "
+                    f"(HF Trainer built-in hook, train-only, removed before save)")
     optimizers = (None, None)
     if args.llrd:
         optimizers = (build_llrd_optimizer(model, args.lr, args.llrd,
@@ -1248,14 +1474,20 @@ def main():
             logger.info(f"distill CE term uses label smoothing eps={args.label_smoothing} "
                         f"(E30 fix — E26 1B students lost the LS gain)")
     if aux_on:
+        assert args.loss in ("ce", "ls"), \
+            "--rdrop/--supcon/--hard_boundary combine with --loss ce or ls only " \
+            "(E32 fix: LS lives inside the aux CE terms); focal/wce/la still " \
+            "replace CE and are not combinable"
         supcon_cfg = ({"lam": args.supcon, "tau": args.supcon_tau,
                        "group_w": args.supcon_group_w, "queue": args.supcon_queue}
                       if args.supcon else None)
-        trainer_cls = make_aux_trainer(Trainer, rdrop=args.rdrop, supcon=supcon_cfg)
-    if args.loss != "ce" and teacher is None:
-        assert not aux_on, \
-            "--loss focal/ls/wce/la replaces the classification CE and is not combinable " \
-            "with --rdrop / --supcon / --hard_boundary"
+        trainer_cls = make_aux_trainer(Trainer, rdrop=args.rdrop, supcon=supcon_cfg,
+                                       ce_mode=args.loss,
+                                       label_smoothing=args.label_smoothing)
+        if args.loss == "ls":
+            logger.info(f"aux CE terms use label smoothing eps={args.label_smoothing} "
+                        f"(E32 fix — LS stays inside the CE alongside rdrop/supcon)")
+    if args.loss != "ce" and teacher is None and not aux_on:
         class_weight = log_prior = None
         if args.loss in ("wce", "la"):
             counts = np.bincount(y_ids[tr], minlength=len(classes)).astype(np.float64)
@@ -1304,6 +1536,32 @@ def main():
             "LTP not combinable with --distill_from/--rdrop/--supcon/--hard_boundary"
         logger.info("LTP hard-recover: weights-only, no sparsity regularizer, "
                     "no threshold LR group")
+    assert (args.fgm_eps > 0) + (args.pgd_eps > 0) + (args.awp_gamma > 0) <= 1, \
+        "adversarial levers are mutually exclusive — pick ONE of --fgm_eps / " \
+        "--pgd_eps / --awp_gamma (E34: escalations are compared, not stacked)"
+    if args.fgm_eps > 0:                        # E32-A1 — wraps LAST so both passes
+        assert not args.distill_from and args.ltp_final_threshold == 0, \
+            "--fgm_eps: untested with --distill_from / LTP — run it single-lever (E32)"
+        trainer_cls = make_fgm_trainer(trainer_cls, args.fgm_eps)
+        logger.info(f"FGM adversarial training: eps={args.fgm_eps} on the input-"
+                    f"embedding weight (clean + adversarial backward per step, "
+                    f"~2x step cost)")
+    if args.pgd_eps > 0:                        # E34-B — wraps LAST (same slot as FGM)
+        assert not args.distill_from and args.ltp_final_threshold == 0, \
+            "--pgd_eps: untested with --distill_from / LTP — run it single-lever (E34)"
+        trainer_cls = make_pgd_trainer(trainer_cls, args.pgd_eps, args.pgd_alpha,
+                                       args.pgd_k)
+        logger.info(f"PGD adversarial training: eps={args.pgd_eps} "
+                    f"alpha={args.pgd_alpha} k={args.pgd_k} on the input-embedding "
+                    f"weight (~{args.pgd_k + 1}x step cost)")
+    if args.awp_gamma > 0:                      # E34-C — wraps LAST (same slot as FGM)
+        assert not args.distill_from and args.ltp_final_threshold == 0, \
+            "--awp_gamma: untested with --distill_from / LTP — run it single-lever (E34)"
+        trainer_cls = make_awp_trainer(trainer_cls, args.awp_gamma, args.awp_lr,
+                                       args.awp_start_epoch)
+        logger.info(f"AWP adversarial weight perturbation: gamma={args.awp_gamma} "
+                    f"adv_lr={args.awp_lr} from epoch {args.awp_start_epoch} "
+                    f"(~2x step cost once active)")
     dyn_callbacks = []
     snap = None
     if ram_best and not args.all_data:   # all_data: no eval -> snapshot would never fire
