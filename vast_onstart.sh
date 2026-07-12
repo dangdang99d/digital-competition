@@ -8,6 +8,13 @@ set -ex
 
 BRANCH="${DACON_BRANCH:-research/token-selection}"
 
+# vast's own images keep python in a venv — activate it if present
+[ -f /venv/main/bin/activate ] && . /venv/main/bin/activate
+
+# runtime images (e.g. pytorch/pytorch:latest) lack a C toolchain, which
+# torch.compile/triton needs at run time
+command -v gcc >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq build-essential; }
+
 cd /workspace
 if [ ! -d repo/.git ]; then
     git clone --depth 1 -b "$BRANCH" https://github.com/dangdang99d/digital-competition.git repo
