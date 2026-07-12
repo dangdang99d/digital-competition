@@ -74,8 +74,10 @@ def harvest(member, fold, batch_size=64):
     os.makedirs(CACHE, exist_ok=True)
 
     samples, labels = load_samples("./data")
-    y = np.array([CLASS_TO_ID[a] for a in labels])
-    _, va = session_fold_indices(samples, y, fold, n_splits=N_SPLITS, seed=42)
+    # CRITICAL: pass STRING labels, exactly like finetune.py — StratifiedGroupKFold's fold
+    # assignment depends on label values; int-mapped labels yield DIFFERENT folds (~20%
+    # overlap), silently making the harvest ~80% in-sample.
+    _, va = session_fold_indices(samples, labels, fold, n_splits=N_SPLITS, seed=42)
     texts = build_texts(samples, variant=MEMBERS[member]["serialize"])
     txv = [texts[i] for i in va]
 
