@@ -170,6 +170,22 @@ MSP decile): P(true=r1) vs P(true=r2) per cell. Figures:
   swaps, predictions identical) · 5-row CPU end-to-end pass (model load, serialization,
   skip-path, CSV) · zip diff vs original: all 7 files byte-identical except script.py,
   integrity OK, 846M. Ready to upload; read LB vs 0.77738.
+- **LB RESULT (submitted 2026-07-10 19:05): 0.77727 = −0.00011 vs champion 0.77738 —
+  NEUTRAL; the +0.0012 slice gain did NOT transfer** (5:06, rule costs zero time).
+  Consistent with the information bound: the fixable residue in the model's own outputs
+  is ≈0 on the real test distribution.
+
+## VERDICT — E27 CLOSED (user decision + LB read, 2026-07-10)
+
+Detect-and-fix on top of a trained classifier is information-bounded: every adjustment
+reading only the model's own logits failed honest evaluation (E6 fallback · blind swap ·
+1b policy · flip rule LB-neutral) — model+rule is just another classifier that training
+could have learned. Value enters only with OUTSIDE information, and each such source is
+better spent at full coverage than through a gate: cross-model signal → E26 ensembling
+(LB +0.0079) dominates selective consultation; test-distribution signal → TTA (+0.0019).
+Durable outputs: top-4/group containment map · prior-dominance (buried-lsdir) bias ·
+assessor proof that cross-model features break the 0.85 ceiling (0.8655 vs 0.8425) —
+carried into E26 as guidance, not as a routing layer.
 
 ## Phase 2-B · Assessor v2 — CROSS-MODEL FEATURES BREAK THE 0.85 CEILING ✅
 

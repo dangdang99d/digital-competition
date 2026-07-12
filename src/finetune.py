@@ -420,17 +420,24 @@ def replace_head(model, n_layers, act="gelu"):
     logger.info(f"replaced classification head with {n_layers}-layer {act} MLP (dropout {p})")
 
 
-def make_distill_trainer(trainer_cls, alpha, temperature):
+def make_distill_trainer(trainer_cls, alpha, temperature, ce_mode="ce",
+                         label_smoothing=0.1):
     import torch.nn.functional as F
 
     class _DistillTrainer(trainer_cls):
         """loss = (1-alpha)*CE(student, y) + alpha*T^2*KL(teacher_T || student_T).
-        Eval batches carry no teacher_logits -> plain CE there."""
+        Eval batches carry no teacher_logits -> plain CE there.
+        ce_mode="ls" (E30 fix): the CE term uses label smoothing — E26 path-1B lost
+        the LS gain (~0.0107) because KD replaced the smoothed CE wholesale."""
 
         def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
             teacher_logits = inputs.pop("teacher_logits", None)
             outputs = model(**inputs)
-            loss = outputs.loss
+            if ce_mode == "ls":
+                loss = F.cross_entropy(outputs.logits, inputs["labels"],
+                                       label_smoothing=label_smoothing)
+            else:
+                loss = outputs.loss
             if teacher_logits is not None:
                 kd = F.kl_div(
                     F.log_softmax(outputs.logits.float() / temperature, dim=-1),
@@ -683,6 +690,9 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--warmup_ratio", type=float, default=0.05,
                     help="LR warmup fraction of total steps (teammate's recipe uses 0.1)")
+    ap.add_argument("--weight_decay", type=float, default=0.01,
+                    help="AdamW weight decay (was hardcoded 0.01 before E28; default keeps "
+                         "the old behavior)")
     ap.add_argument("--session_fold", type=int, default=-1,
                     help=">=0: replace the row-stratified split with the teammate's "
                          "session-grouped StratifiedGroupKFold protocol (leakage-free; "
@@ -710,6 +720,13 @@ def main():
                     help="fold 75%% of the val split into training; the remaining 25%% "
                          "(stratified) stays held out for eval + calibration. Safe to combine "
                          "with --init_from: the checkpoint only ever saw the train split")
+    ap.add_argument("--all_data", action="store_true",
+                    help="train on EVERY sample with NOTHING held out (final-submission "
+                         "retrains, E28). No honest eval exists: per-epoch eval is skipped, "
+                         "best-epoch selection is disabled, the LAST epoch is the final "
+                         "artifact, val_macro_f1 is recorded as nan — epochs must come from "
+                         "a prior search. Not combinable with --full_data/--session_fold/"
+                         "--calibrate")
     ap.add_argument("--keep_indices", default="",
                     help="path to a .npy of ABSOLUTE sample indices (into the 70k) — restrict "
                          "TRAINING to tr ∩ these (drop-noisy coreset). Val slice unchanged")
@@ -922,6 +939,17 @@ def main():
             va, test_size=0.25, stratify=y_ids[va], random_state=args.seed)
         tr = np.concatenate([tr, va_train])
         va = va_eval
+    if args.all_data:
+        # E28 final-submission mode: every sample trains, nothing is held out, so no
+        # honest eval exists — eval/best-epoch machinery is disabled further down and
+        # the last epoch is what gets saved.
+        assert not args.full_data and args.session_fold < 0, \
+            "--all_data already uses every sample; drop --full_data/--session_fold"
+        assert not args.calibrate, "--all_data leaves no held-out rows to calibrate on"
+        tr = np.arange(len(y_ids))
+        va = va[:0]  # empty val: downstream dataset/eval paths see 0 rows
+        logger.info(f"ALL-DATA mode: train={len(tr)} (everything), no eval split; "
+                    f"last-epoch weights will be the final artifact")
     if args.keep_indices:
         keep = set(np.load(args.keep_indices).tolist())
         before = len(tr)
@@ -1183,18 +1211,24 @@ def main():
                     metric_for_best_model="macro_f1", greater_is_better=True,
                     save_total_limit=args.keep_checkpoints,
                     save_only_model=True))              # SWA needs weights only; ~3x less disk
+    if args.all_data:
+        # no eval -> no metric to pick a best epoch by; per-epoch disk saves
+        # (--keep_checkpoints >1, SWA) still work, minus load_best_model_at_end
+        ckpt_kw = (dict(save_strategy="no") if ram_best else
+                   dict(save_strategy="epoch", save_total_limit=args.keep_checkpoints,
+                        save_only_model=True))
     targs = TrainingArguments(
         output_dir=run_dir, num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size * 2,
         gradient_accumulation_steps=args.grad_accum, learning_rate=args.lr,
         optim=args.optim,                              # sgd for big models (zero optimizer state)
-        warmup_ratio=args.warmup_ratio, weight_decay=0.01,
+        warmup_ratio=args.warmup_ratio, weight_decay=args.weight_decay,
         logging_strategy="steps", logging_steps=50,   # periodic {loss,epoch} log lines
         disable_tqdm=False,                            # keep the bar; tqdm.auto is log-safe
         gradient_checkpointing=use_gc,                 # trade compute for VRAM (full-FT is heavy)
         group_by_length=args.group_by_length,          # cut padding waste at small batch
-        eval_strategy="epoch", **ckpt_kw,
+        eval_strategy=("no" if args.all_data else "epoch"), **ckpt_kw,
         bf16=use_bf16, fp16=(device == "cuda" and not use_bf16),
         report_to="none", seed=init_seed,
     )
@@ -1204,16 +1238,24 @@ def main():
                                            args.optim, targs.weight_decay), None)
     trainer_cls = Trainer
     if teacher is not None:
-        trainer_cls = make_distill_trainer(Trainer, args.distill_alpha, args.distill_T)
+        assert args.loss in ("ce", "ls"), \
+            "--distill_from combines with --loss ce or ls only (ls = E30 fix: LS inside " \
+            "the KD CE term); focal/wce/la still replace CE and are not combinable"
+        trainer_cls = make_distill_trainer(Trainer, args.distill_alpha, args.distill_T,
+                                           ce_mode=args.loss,
+                                           label_smoothing=args.label_smoothing)
+        if args.loss == "ls":
+            logger.info(f"distill CE term uses label smoothing eps={args.label_smoothing} "
+                        f"(E30 fix — E26 1B students lost the LS gain)")
     if aux_on:
         supcon_cfg = ({"lam": args.supcon, "tau": args.supcon_tau,
                        "group_w": args.supcon_group_w, "queue": args.supcon_queue}
                       if args.supcon else None)
         trainer_cls = make_aux_trainer(Trainer, rdrop=args.rdrop, supcon=supcon_cfg)
-    if args.loss != "ce":
-        assert teacher is None and not aux_on, \
+    if args.loss != "ce" and teacher is None:
+        assert not aux_on, \
             "--loss focal/ls/wce/la replaces the classification CE and is not combinable " \
-            "with --distill_from / --rdrop / --supcon / --hard_boundary"
+            "with --rdrop / --supcon / --hard_boundary"
         class_weight = log_prior = None
         if args.loss in ("wce", "la"):
             counts = np.bincount(y_ids[tr], minlength=len(classes)).astype(np.float64)
@@ -1264,7 +1306,7 @@ def main():
                     "no threshold LR group")
     dyn_callbacks = []
     snap = None
-    if ram_best:
+    if ram_best and not args.all_data:   # all_data: no eval -> snapshot would never fire
         snap = make_best_snapshot()
         dyn_callbacks.append(snap)
     if args.log_dynamics:
@@ -1284,7 +1326,10 @@ def main():
                     f"(linear over training)")
 
     trainer.train()
-    if ram_best and snap.best_state is not None:
+    if args.all_data:
+        # nothing held out -> no val metric; the in-memory model IS the last epoch
+        val_f1 = float("nan")
+    elif ram_best and snap.best_state is not None:
         # best-epoch weights come from the RAM snapshot; the per-epoch evals already
         # produced the reported metric, so no extra evaluate() pass is needed
         model.load_state_dict(snap.best_state)

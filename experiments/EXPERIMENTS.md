@@ -30,6 +30,7 @@ working tree + live training). The table maps each group to its doc and experime
 | `research/token-selection` | [experiments/token-selection/results.md](token-selection/results.md) | E24 (A/B/C/D select+refit) |
 | `research/miseo-recipe` | [experiments/miseo-recipe/results.md](miseo-recipe/results.md) | E25 (a recipe repro / b +LS+bf16 / c richmeta) |
 | `research/ensemble` | [experiments/ensemble/results.md](ensemble/results.md) | E26 (checkpoint ensemble under submission constraints) |
+| `research/optuna` | [experiments/optuna/results.md](optuna/results.md) | E28 (optuna HPO, runs on **ocean2**) |
 
 ## Dashboard
 
@@ -66,7 +67,10 @@ working tree + live training). The table maps each group to its doc and experime
 | E24 | token-selection | **Upstream feature/token selection** (a *filter*: score once → retrain once) — **A** attention/saliency token-select + top-k refit · **B** field-level occlusion selection · A×B scorer-overlap | granite champion **E8a+LS richargs 0.7803**; from-scratch full-input anchor **0.7790** (harness faithful) | **A ❌:** attn k90 scratch 0.7712 (−0.008) · sal k90 **0.7550 (−0.024)** — even 10% token-drop hurts, low-redundancy input; sweep stop-rule fired at k90. **B 🟡:** meta-subfield tail drops LOSSLESS (drop5 0.7780 ≈ anchor) but NO gain — efficiency only. **Overlap:** attn∩sal ≈ chance (1.2×, Spearman 0.35) → no model-independent unimportant-token set. **Recovery arm confounded** (~0.763 regardless of input — warm-start+3ep degrades champion) | — | n/a | ✅ **DONE — selection NULL for accuracy; champion stays.** C/D dropped (gated on slack — none). Report: [token-selection/results.md](token-selection/results.md) |
 | E25 | miseo-recipe | **Teammate-recipe repro** (his build_nb.py obtained 07-09) — **a:** his settings verbatim on our pipeline (names + CE + warmup 0.1 + fp16) · **b:** his settings + our levers (+ LS ε=0.1 + bf16) · **c:** = b with `richmeta` (our format, his full-path history style — direct richmeta-vs-richargs probe). All `--full_data` (stand-in for his train-on-all; NOT k-fold, per user). Read-outs: a ≈ his level? · b−a = LS+bf16 on his recipe · b vs E21 0.7731 = warmup 0.1↔0.05 single axis · c vs b = our-vs-his packaging of identical info | his LB 0.77427 / OOF base 0.7642 · E21 names+LS 0.7731 · E8a richargs+LS 0.7803 | **a 0.7692 · b 0.7742 · c 0.7801**: repro sane · LS+bf16 **+0.0050** on his recipe · warmup 0.1↔0.05 **+0.0011** (≈noise) · our format > his **+0.0059** (c vs b, equal path info) · **richmeta 0.7801 ≈ richargs 0.7803** — his "richmeta>richargs" NOT reproduced | — | — | ✅ **DONE — no recipe edge; champion (E8a richargs+LS) stands.** Report: [miseo-recipe/results.md](miseo-recipe/results.md). New flags `--warmup_ratio`/`--precision`/`--session_fold`; new variants `names_files`/`richfiles` |
 | E26 | ensemble | **Checkpoint ensemble** — combine existing trained models (uniform softmax mean, NO weights/calibration) for the highest submittable score. Phase 0: screen ~20 checkpoints on the shared 3.5k held-out (all-pairs + greedy Caruana + disagreement); Phase 1: package best combo under constraints (2× granite fp16 + vocab-prune shape); Phase 2: submit. Constraint math: full qwen3 DEAD (9:18 alone); 2× granite fp32 ≈10:12 over; soup = constraint-free but needs new shared-init trainings (opt arm) | LB **0.77931** (granite+TTA) · non-TTA 0.77921 · screen ref champion 0.7803 | — | — | — | 🔲 **QUEUED** — design + `screen_ensemble.py` built; gates: package only if screen > champion +0.003; LB is the judge (3.5k mis-ranks, E8). [ensemble/results.md](ensemble/results.md) |
-| E27 | errorpred | **Error prediction** — label-free per-row estimate of "will the prediction be wrong" (test-applicable) + structure to recover the true label on flagged rows. Phase 1: MSP-decile × rank-1..4 confusion analysis on granite-LS e9 val logits. Phase 2 candidates (3-agent lit survey): A LS-damage audit + p-norm-logit fix · B assessor v2 (multi-model + CL/PVI-kNN features) · C CRL retrain · D SWA/SAM | E20 gate ceiling **0.854 AUROC** · granite-LS MSP→err **0.843** | **Phase 1 ✅: true ∈ top-4 ≥98.6% in every decile** · true in r1's group ≥0.95 even among wrongs · wrong→true=r2 51–65% · blind rank-swap dead (d1: keep 36% > swap 32%) → exploit needs an independent intra-group signal | [rank profile](errorpred/figures/true_rank_profile.png) · [rank2 confusion](errorpred/figures/rank2_confusion_by_decile.png) | — | 🔵 **ACTIVE** — phase 2 arm awaiting user pick. [errorpred/results.md](errorpred/results.md) |
+| E27 | errorpred | **Error prediction** — label-free per-row estimate of "will the prediction be wrong" (test-applicable) + structure to recover the true label on flagged rows. Phase 1: MSP-decile × rank-1..4 confusion analysis on granite-LS e9 val logits. Phase 2 candidates (3-agent lit survey): A LS-damage audit + p-norm-logit fix · B assessor v2 (multi-model + CL/PVI-kNN features) · C CRL retrain · D SWA/SAM | E20 gate ceiling **0.854 AUROC** · granite-LS MSP→err **0.843** | **Phase 1 ✅: true ∈ top-4 ≥98.6% in every decile** · true in r1's group ≥0.95 even among wrongs · wrong→true=r2 51–65% · blind rank-swap dead (d1: keep 36% > swap 32%) → exploit needs an independent intra-group signal | [rank profile](errorpred/figures/true_rank_profile.png) · [rank2 confusion](errorpred/figures/rank2_confusion_by_decile.png) | ✅ `submit_0710_flip.zip` → **LB 0.77727 (−0.00011 vs champion 0.77738) — NEUTRAL; the +0.0012 slice gain did NOT transfer** (5:06, rule adds zero time) | ✅ **DONE — CLOSED 2026-07-10 (user decision + LB read).** Own-logit adjustment is information-bounded (1b/blind-swap/E6/E20 all dead; flip rule = LB wash). Durable insight: **cross-model signal breaks the MSP ceiling (assessor 0.8655 vs 0.8425)** — already cashed at full coverage by E26 ensembling, where effort redirects. [errorpred/results.md](errorpred/results.md) |
+| E28 | optuna | **Optuna HPO** (runs on **ocean3**, 2× 3090 both clean — moved off ocean2, which drew the suspect card `GPU-e6a9233a` as its GPU 0) — TPE search around the champion recipe (granite E8a richargs+LS full_data bf16) for performance maximization; init_seed fixed 42 (soup/ensemble-compatible winners) | champion full_data CV **0.7803** · single-model LB 0.77931 (TTA) / 0.77921 (qwen3_ls) | — | — | — | 🔵 **ACTIVE — design phase; search space + objective split awaiting user pick.** [optuna/results.md](optuna/results.md) |
+| E29 | stacking | **Learned head over the trio** (user opts, strict gate order: ① logreg on concatenated member OOF probs, null = uniform mean, gate ≥+0.002 honest CV → ② embedding-fusion head, concat 3×768 penultimate → linear/MLP → 14 → ③ per-row gating head, only if ② stalls). Ship = trio + winning head (head = KBs → packaging/time unchanged 6:52/836M); LB judges | uniform trio LB **0.78719** · w424 0.78709 (global weights ≈ uniform) · at 3.5k every fitted combiner LOST honest CV — E30's 70k OOF is the 20×-data retry | — | — | — | ⛔ **GATED** — needs (a) E30 phase-0 OOF data, (b) user ruling: does a trained head violate the no-calibration invariant? (uniform mean was exempted). Design in §E29 |
+| E30 | ensemble-oof | **E26 continuation — session-grouped OOF campaign + OOF-teacher distillation retry.** Phase 0: 15 fold-trainings (3 trio-member recipes × 5-fold `--session_fold`, 70k, E22 harvester skeleton upgraded: session-grouped folds · member recipes · probs AND penultimate embeddings) → the shared honest substrate for E29 + phase 1. Phase 1: distillation retry with OOF-harvested teacher (fixes 1B's in-sample near-one-hot harvest) + LS-in-CE finetune.py fix; gate: student ≥ champion 0.7803 → joins member pool. Byproduct: honest champion-recipe CL/PVI re-audit (E22 §4 ask) | trio LB **0.78719** (direct-package ceiling; 4th member breaks caps) · 1B students 0.7635–0.7728 ≪ champion 0.7803 (in-sample teachers ≈ noisy labels; plateau = champion−LS ≈ 0.7696) | — | — | — | 🔲 **QUEUED — awaits vast GO** (~15 × ~35 min ≈ 8–10 GPU-h). Design in §E30 |
 
 Status legend: ⏸ blocked-external · ⛔ gated · 🔎 analysis · 🏃 running · ✅ done · ❌ refuted
 New figures → `experiments/<branch>/figures/`; the `figures/` root holds pre-branch legacy plots.
@@ -275,7 +279,7 @@ fp16 + vocab-prune** (est ~600–700M, time to be measured by the submission its
 - **Gates:** package only if screen > champion 0.7803 by +0.003; prefer diverse members; first
 submission conservative (2 members). LB judges (3.5k slice mis-ranks — E8 lesson).
 
-### E27 · Error prediction — decile × rank confusion structure — 🔵 ACTIVE (user 2026-07-09) — report: [errorpred/results.md](errorpred/results.md)
+### E27 · Error prediction — decile × rank confusion structure — ✅ DONE, CLOSED 2026-07-10 (flip rule LB-neutral 0.77727; user closed the line) — report: [errorpred/results.md](errorpred/results.md)
 - **Objective:** estimate per-row whether the model's prediction will be WRONG (test-applicable,
   label-free), then find structure that recovers the true label on likely-wrong rows. Anchors:
   E20 (~0.85 MSP gate ceiling) · §5 group acc ~0.99 · E6 (blind top-2 fallback fails).
@@ -308,7 +312,68 @@ submission conservative (2 members). LB judges (3.5k slice mis-ranks — E8 less
   LS ε=0.1 documented to cost 3–9 AUROC pts, free post-hoc fix, ICLR'25) · **B** assessor v2
   (XGBoost on multi-model MSP/agreement/KL + kNN-propagated CL/PVI difficulty + group-margin) ·
   **C** CRL retrain · **D** SWA/SAM (FMFP) retrain. Awaiting user pick.
-- **Status:** 🔵 ACTIVE — phase 1 done; exploit arm not chosen yet.
+- **Status:** ✅ DONE — CLOSED 2026-07-10. Flip-rule LB probe `submit_0710_flip.zip` →
+  **0.77727 (−0.00011 vs champion) — neutral, slice gain did not transfer**; user closed the
+  detect-and-fix line. Full verdict in [errorpred/results.md](errorpred/results.md);
+  the cross-model insight migrates to E26/E29.
+
+### E29 · Learned head over the trio — ⛔ GATED on E30 phase-0 data + calibration ruling (updated 2026-07-12)
+
+- **Objective:** replace the trio's uniform prob mean with a TRAINED head (user ask: "ML
+  model on top instead of hand-built"; original fleet-gate died with E26 path-1B — E29 now
+  consumes the **E30** session-grouped OOF harvest instead).
+- **Members fixed** = the LB-certified trio (e12soup_is3 · e22_aum06 · e25c_richmeta,
+  LB 0.78719); the head ships alongside them (head = KBs → packaging/time unchanged at
+  6:52/836M).
+- **Arms, strict gate order (user-picked opts 1→2→3):**
+  - **① prob-stacker (gatekeeper):** L2 logreg on concatenated member probs (3×14), 5-fold
+    CV on the 70k OOF, null = uniform mean, promote only if ≥ +0.002 honest CV. Context: at
+    3.5k every fitted combiner LOST its honest read (stacking 0.7776/0.7799 vs uniform
+    0.7840/0.7851) — this is the 20×-data retry. If ① fails, E29 CLOSES (② and ③ inherit
+    the same data limits with more capacity).
+  - **② embedding-fusion head:** concat members' penultimate embeddings (3×768) → linear/
+    small-MLP → 14 (the "additional head"; sees pre-softmax geometry ① discards). Needs the
+    OOF embedding caches; members ship headless, fusion head becomes the classifier.
+  - **③ per-row gating head:** input → per-member weights → weighted mean (global weights
+    already ≈ uniform per w424; per-row is the version with headroom). Only if ② stalls.
+- **Evaluation:** honest OOF CV vs uniform null → best head → one LB slot; slice/CV never
+  ranks the final answer (E8/E26/E27 lesson — LB judges).
+- **⚠️ Policy gate:** a trained head reshapes class probabilities — user must rule whether
+  it violates the no-calibration invariant before any build (uniform mean was explicitly
+  exempted; this ruling was deferred when E29 was queued).
+- **Status:** ⛔ GATED — needs (a) E30 phase-0 caches, (b) the calibration ruling. **Result:** —
+
+### E30 · E26-continued — session-grouped OOF campaign + OOF-teacher distillation retry (user 2026-07-12) — 🔲 QUEUED
+
+- **Objective:** push past the trio's direct-package ceiling (LB 0.78719; a 4th member
+  breaks both caps). One harvest, two consumers: honest training data for the E29 head, and
+  an honestly-taught distilled student (new members) for the 1B retry.
+- **Phase 0 — the harvest (shared substrate):** for each trio-member recipe, 5-fold
+  **session-grouped** (`--session_fold`, E25 plumbing, leakage asserted 0) fold-trainings
+  over the 70k full_data universe; every row predicted only by fold-models that never saw
+  its session. Save per member: OOF **probs + penultimate embeddings**. Skeleton = E22's
+  `confident_learning.py` harvester (`--folds/--part_out/--merge` multi-GPU) with three
+  deltas: StratifiedGroupKFold-by-session (E22 was row-level = session-leaky — tolerable
+  for label auditing, poison for training a head/teacher) · the member recipes, not the
+  v1+CE scorer · embeddings too. Cost ~15 × ~35 min on vast 3090s ≈ **8–10 GPU-h**.
+- **Phase 1 — distillation retry (1B escape hatches, both):** teacher = mean of members'
+  OOF probs — real dark knowledge (1B failed because in-sample harvest ≈ near-one-hot noisy
+  labels; all 4 students plateaued at champion−LS ≈ 0.7696) — plus the finetune.py fix to
+  keep LS inside the CE term alongside KD. 1–2 students, from-scratch champion recipe.
+  Gate: student ≥ champion 0.7803 on the slice → joins the member pool → re-run E26
+  selection with the new pool.
+- **Byproduct (free):** phase 0 doubles as the honest champion-recipe CL/PVI re-audit that
+  E22-§4 requested (denoise stays closed; diagnostics only).
+- **Implementation (✅ 2026-07-12, code ready — nothing launched):**
+  `experiments/ensemble/oof_harvest.py` (per-(member,fold) train+harvest via `--session_fold`,
+  penultimate embeddings via forward hook on the final classifier Linear, per-fold caches →
+  `--merge` with full-coverage assert; `--dry_run` prints the 15 vast commands — run per
+  VAST.md, no sbatch per user) · `experiments/ensemble/build_oof_teacher.py` (mean OOF probs →
+  log-prob teacher npz, near-one-hot ABORT guard = the 1B failure signature) ·
+  `src/finetune.py` **LS-inside-KD fix** (`make_distill_trainer(ce_mode="ls")`; `--distill_from`
+  now combines with `--loss ls`, still not with focal/wce/la). ⚠️ pre-launch: `--dry_run` args
+  reconstructed from CSVs — diff vs original member run logs (esp. is3 `--init_seed 3`).
+- **Status:** 🔲 QUEUED — code ready; awaits vast GO. **Result:** —
 
 ### Backlog / housekeeping
 - rdrop (disc task 0) never finished on the old box — superseded in spirit by supcon's

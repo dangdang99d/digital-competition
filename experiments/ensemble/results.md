@@ -132,14 +132,37 @@ mis-ordered ensembles twice today):
 | 5-union of both LB ensembles (+is2, estack) | 0.7824 | ✗ slice-worse, no new diversity axis |
 | **T2 = trio + champion + qwen3_ls** (6 members) | 0.7842 | ✅ DIVERSITY BET — the only mechanism that gets qwen3 knowledge into a submittable model; slice structurally under-ranks qwen3 (E8) |
 
-**Student run set** (from-scratch granite champion recipe; ~1.5 GPU-h each):
+**Student run set** (from-scratch granite champion recipe, bs16×ga1+group_by_length; ~35 min/student on a 3090, runs on vast.ai):
 
-| # | teacher | KD setting | tests |
-|---|---|---|---|
-| 1 | T1 trio | vanilla α=0.7, **T=2** (teacher = mean of 3 LS models → already soft; don't over-temper) | the workhorse |
-| 2 | T1 trio | soft-labels-only α=1, T=1 | teacher-as-better-labels (E22: ~6% labels noisy) |
-| 3 | T2 6-member | vanilla α=0.7, T=2 | cross-backbone transfer (qwen3 → granite) |
-| 4 | champion only | vanilla α=0.7, T=2 | born-again CONTROL — KD-regularizer vs ensemble-knowledge attribution |
+| # | teacher | KD setting | tests | slice macro-F1 (full_data 3.5k) |
+|---|---|---|---|---|
+| 1 | T1 trio | vanilla α=0.7, **T=2** (teacher = mean of 3 LS models → already soft; don't over-temper) | the workhorse | 0.7691 ❌ |
+| 2 | T1 trio | soft-labels-only α=1, T=1 | teacher-as-better-labels (E22: ~6% labels noisy) | 0.7635 ❌ (worst) |
+| 3 | T2 5-member (trio+champion+qwen3_ls) | vanilla α=0.7, T=2 | cross-backbone transfer (qwen3 → granite) | 0.7696 ❌ |
+| 4 | champion only | vanilla α=0.7, T=2 | born-again CONTROL — KD-regularizer vs ensemble-knowledge attribution | 0.7728 ❌ |
+
+**VERDICT (all 4 students done 2026-07-12): path 1B CLOSED — distillation is net-negative under
+this harvest scheme.** Champion anchor 0.7803; every student landed 0.007–0.017 below it, and
+the ensemble-taught students (0.7691/0.7696) even UNDER the single-teacher control (0.7728).
+Per-epoch curves: all four peaked at epoch 2 and flattened/declined at 3 → NOT undertrained;
+they converged to a lower plateau.
+
+**Why (mechanism, fits the numbers):** all teachers were harvested on the rows they trained on
+(full_data members) → near-one-hot, ≈ the labels incl. the ~6% noise (E22) → students received
+almost no dark knowledge AND lost label smoothing (`--distill_from` is not combinable with
+`--loss ls`). Plateau ≈ champion − LS gain: 0.7803 − 0.0107 (E9) ≈ 0.7696 ✓. Ranking confirms:
+the harder the student leaned on teacher targets (α=1 soft-only worst at 0.7635), the worse.
+
+**Documented escape hatches if 1B is ever revisited (target-side, not schedule-side):**
+(1) OOF-harvested teachers — 5-fold members label only their unseen fold, honest uncertainty
+survives; (2) keep LS inside the CE term alongside KD (small finetune.py change). **Both queued
+2026-07-12 as E30 phase 1** (session-grouped OOF campaign; E29 learned-head consumes the same
+harvest); direct trio submission (LB 0.78719) stays the champion path meanwhile.
+
+Ops notes: students ran on vast.ai 3090s (~31 min each, fast shape). Two earlier runs of
+students 1/3 were lost to silent NaN on stale `pytorch:latest` hosts (torch 2.2.1 + ModernBERT
+bf16; see VAST.md pinned-tag rule) before the pinned-template reruns. Weights + logs + CSV on
+NFS (`output/pat/ft_*e26s_*`, `sbatch/logs/train_e26s_*.log`, `output/vast/`).
 
 Execution: 6 member harvests over 70k (`distill_teacher.py`; per-member caches shared by both
 teachers; qwen3_ls resumes its partial cache) ≈2 h on healthy GPUs → build T1/T2 npz →
