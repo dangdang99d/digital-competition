@@ -23,6 +23,10 @@ fi
 # torch is already in the image; its requirements pin has a +cu128 local suffix that
 # pip treats as a different version and re-downloads 2.5GB — skip the line
 grep -v '^torch' repo/requirements.txt > /tmp/reqs.txt
+# hosts with a stale cached pytorch:latest ship python 3.10; sklearn 1.8 needs >=3.11.
+# 1.7.2 is metric-identical for our use (macro-F1 only)
+python -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)' || \
+    sed -i 's/scikit-learn==1.8.0/scikit-learn==1.7.2/' /tmp/reqs.txt
 pip install --no-cache-dir -r /tmp/reqs.txt
 
 echo 'export TQDM_DISABLE=1' >> /root/.bashrc
