@@ -1,6 +1,9 @@
 # E35 · AWP hyperparameter search (Optuna) — `research/optuna` (E28 harness, round 2)
 
-**Status: 🔲 QUEUED (user 2026-07-13). Code ready + dry-run verified; awaiting rental GO.**
+**Status: 🏃 LAUNCHING (2026-07-13) — full search on rented 8×5090 (vast 44686633,
+16 workers = 2/GPU, SQLite local). Search space + code cross-checked (ranges match
+build_cmd suggest_* 1:1; anchor = enqueued LB-0.78557 config). Provisioning; CUDA/Blackwell
++ VRAM gates before launch.**
 
 ## Motivation
 
@@ -17,12 +20,11 @@ champion recipe is still optimal under adversarial training.
 
 ## Search space
 
-Base recipe (same as E28) + AWP knobs, 9 params total:
+Base recipe (minus epochs) + AWP knobs, **8 searched params**:
 
 | param | scale | range | champion/E34 anchor |
 |---|---|---|:--:|
 | `lr` | log | 5e-6 → 5e-5 | 2e-5 |
-| `epochs` | int | 2 → 5 | 3 |
 | `eff_batch` | categorical | {8,16,32} | 16 |
 | `warmup_ratio` | uniform | 0.0 → 0.15 | 0.05 |
 | `label_smoothing` | uniform | 0.02 → 0.20 | 0.10 |
@@ -31,6 +33,13 @@ Base recipe (same as E28) + AWP knobs, 9 params total:
 | **`awp_lr`** | log | 3e-5 → 3e-4 | 1e-4 |
 | **`awp_start_epoch`** | categorical | {0, 1} | 1 |
 
+- **`epochs` REMOVED from the search, FIXED at 4** (user 2026-07-13). We RAM-snapshot the
+  BEST-epoch checkpoint, which makes "more epochs" a free lunch in the objective (more
+  chances at a high best epoch) → a *searched* epochs drifts to 5 by noise (exactly what
+  happened in E28: "epochs meaningless ≥3") without being genuinely better, and burns
+  compute. Fixing it + best-epoch selection extracts each config's true peak. 4 contains
+  the peak (E28 curves peak at ep3; AWP regularizes so its peak may sit a touch later, so
+  4 > champion's 3 to avoid truncating it).
 - **`awp_start_epoch` capped at {0,1}** (not {0,1,2}): AWP fires only from
   `state.epoch ≥ start_epoch`, so by epoch 2 BOTH values have AWP active — keeping
   MedianPruner meaningful. A start_epoch=2 trial would show 2 pre-AWP epochs that look
@@ -44,7 +53,8 @@ Base recipe (same as E28) + AWP knobs, 9 params total:
 - **Objective:** session-grouped **fold-0** best-epoch macro-F1 (leak-free; E28 protocol).
   ⚠️ slice/fold mis-ranks (E8/E26) → **LB is the final judge** for any promotion.
 - **Fixed:** granite-311m · richargs · `--loss ls` · `--init_seed 42` · max_len 512 ·
-  bf16-auto · E19 fast shape (real batch, explicit `--grad_accum`, `--group_by_length`).
+  bf16-auto · E19 fast shape (real batch, explicit `--grad_accum`, `--group_by_length`) ·
+  **epochs = 4** (see search-space note: best-epoch snapshot would game a searched epochs).
 - **Pruning:** MedianPruner, **n_startup 12 / n_warmup 2** (bigger 9-param space + AWP's
   late-appearing effect ⇒ more random startup, no pruning before epoch 2).
 - **Promotion:** top-2–3 retrain from scratch via **`--full_data`** best-epoch (NOT

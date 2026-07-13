@@ -48,7 +48,13 @@ def cuda_alive():
 def build_cmd(trial, args):
     """Suggest hyperparameters and assemble the finetune.py invocation."""
     lr = trial.suggest_float("lr", 5e-6, 5e-5, log=True)
-    epochs = trial.suggest_int("epochs", 2, 5)
+    # epochs: FIXED for the AWP search (E35), still searched for E28 back-compat.
+    # We RAM-snapshot the BEST-epoch checkpoint, which makes "more epochs" a free lunch
+    # in the objective (more chances at a high best epoch) → a *searched* epochs drifts
+    # to 5 by noise (observed in E28) without being genuinely better, and wastes compute.
+    # Fixing epochs + best-epoch selection extracts each config's true peak; 4 contains
+    # it (E28 curves peak at ep3; AWP regularizes so its peak may sit a touch later).
+    epochs = 4 if args.search_awp else trial.suggest_int("epochs", 2, 5)
     eff_batch = trial.suggest_categorical("eff_batch", [8, 16, 32])
     warmup = trial.suggest_float("warmup_ratio", 0.0, 0.15)
     ls_eps = trial.suggest_float("label_smoothing", 0.02, 0.20)
@@ -194,8 +200,9 @@ def main():
         pruner=optuna.pruners.MedianPruner(n_startup_trials=n_startup,
                                            n_warmup_steps=n_warmup))
     if args.search_awp and args.enqueue_anchor and not study.get_trials(deepcopy=False):
-        study.enqueue_trial({  # champion recipe + AWP defaults = LB 0.78557 (E34)
-            "lr": 2e-5, "epochs": 3, "eff_batch": 16, "warmup_ratio": 0.05,
+        study.enqueue_trial({  # champion recipe + AWP defaults = LB 0.78557 (E34);
+            # 'epochs' omitted — it is fixed (=4), not a searched param for E35
+            "lr": 2e-5, "eff_batch": 16, "warmup_ratio": 0.05,
             "label_smoothing": 0.10, "weight_decay": 0.01,
             "awp_gamma": 1e-3, "awp_lr": 1e-4, "awp_start_epoch": 1})
         logger.info("E35: enqueued LB-validated AWP config as anchor trial 0")
