@@ -173,11 +173,19 @@ def main():
     assert cuda_alive(), \
         "cuInit failed — host driver is poisoned (see fleet memory); do not start trials"
 
-    # E35 joint AWP search: bigger space (9 params) + AWP effect appears in the LATER
-    # epochs → more random startup, and don't prune before epoch 2 (both start_epoch
-    # values have AWP active by then).
-    n_startup = 12 if args.search_awp else 8
-    n_warmup = 2 if args.search_awp else 1
+    # Pruner: E28 used MedianPruner (kill trials below the median epoch-curve). For the
+    # AWP search (E35) we DISABLE pruning (NopPruner): AWP's benefit appears only in the
+    # LATER epochs (it activates from start_epoch), so early-epoch pruning would risk
+    # killing a slow-start-but-blooms config — and with epochs fixed at 4 on 16x5090,
+    # the compute saved by pruning is marginal vs that downside. Run every trial full.
+    if args.search_awp:
+        pruner = optuna.pruners.NopPruner()
+        # more TPE random-startup trials for the 8-param joint space before TPE models it
+        sampler = optuna.samplers.TPESampler(multivariate=True, seed=None,
+                                             n_startup_trials=12)
+    else:
+        pruner = optuna.pruners.MedianPruner(n_startup_trials=8, n_warmup_steps=1)
+        sampler = optuna.samplers.TPESampler(multivariate=True, seed=None)
     # Storage: SQLite (single box) or JournalStorage on shared NFS (multi-box). SQLite
     # over NFS corrupts under cross-host POSIX locks; the journal's symlink lock is
     # NFS-safe, so 2+ instances can drive ONE distributed study.
@@ -196,9 +204,7 @@ def main():
     study = optuna.create_study(
         study_name=args.study, storage=storage,
         load_if_exists=True, direction="maximize",
-        sampler=optuna.samplers.TPESampler(multivariate=True, seed=None),
-        pruner=optuna.pruners.MedianPruner(n_startup_trials=n_startup,
-                                           n_warmup_steps=n_warmup))
+        sampler=sampler, pruner=pruner)
     if args.search_awp and args.enqueue_anchor and not study.get_trials(deepcopy=False):
         study.enqueue_trial({  # champion recipe + AWP defaults = LB 0.78557 (E34);
             # 'epochs' omitted — it is fixed (=4), not a searched param for E35

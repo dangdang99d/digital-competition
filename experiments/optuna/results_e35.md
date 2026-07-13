@@ -55,8 +55,11 @@ Base recipe (minus epochs) + AWP knobs, **8 searched params**:
 - **Fixed:** granite-311m · richargs · `--loss ls` · `--init_seed 42` · max_len 512 ·
   bf16-auto · E19 fast shape (real batch, explicit `--grad_accum`, `--group_by_length`) ·
   **epochs = 4** (see search-space note: best-epoch snapshot would game a searched epochs).
-- **Pruning:** MedianPruner, **n_startup 12 / n_warmup 2** (bigger 9-param space + AWP's
-  late-appearing effect ⇒ more random startup, no pruning before epoch 2).
+- **Pruning: DISABLED (NopPruner)** (user 2026-07-13). Every trial runs its full 4 epochs.
+  AWP's benefit appears only in the LATER epochs (activates from `start_epoch`), so
+  early-epoch median-pruning would risk killing a slow-start-but-blooms config — and with
+  epochs fixed at 4 on 16×5090, the compute pruning saves is marginal vs that downside.
+  TPE random-startup bumped to 12 for the 8-param joint space. (E28 keeps MedianPruner.)
 - **Promotion:** top-2–3 retrain from scratch via **`--full_data`** best-epoch (NOT
   `--all_data` — E28's last-epoch overfit trap that cratered t043 to LB 0.75934), then
   package + LB. Winners keep `--init_seed 42` (soup/ensemble-compatible).
