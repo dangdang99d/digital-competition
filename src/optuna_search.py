@@ -48,7 +48,7 @@ def cuda_alive():
 def build_cmd(trial, args):
     """Suggest hyperparameters and assemble the finetune.py invocation."""
     lr = trial.suggest_float("lr", 5e-6, 5e-5, log=True)
-    # epochs: FIXED for the AWP search (E35), still searched for E28 back-compat.
+    # epochs: FIXED for the AWP search (E38), still searched for E28 back-compat.
     # We RAM-snapshot the BEST-epoch checkpoint, which makes "more epochs" a free lunch
     # in the objective (more chances at a high best epoch) → a *searched* epochs drifts
     # to 5 by noise (observed in E28) without being genuinely better, and wastes compute.
@@ -74,7 +74,7 @@ def build_cmd(trial, args):
            "--tag", f"{args.exp}_t{trial.number:03d}",
            "--out_dir", args.out_dir,
            "--results_name", f"optuna_{args.gpu_tag}.csv"]  # per-worker CSV: no append race
-    # E35: joint AWP-knob search on top of the recipe search. AWP was LB-validated
+    # E38: joint AWP-knob search on top of the recipe search. AWP was LB-validated
     # (0.78557, single-model SOTA) at the blind defaults gamma=1e-3/adv_lr=1e-4/
     # start_epoch=1.0 (E34) — that config is enqueued as the study anchor. start_epoch
     # is capped at {0,1} so AWP is active for the LATER epochs the pruner reports on
@@ -160,10 +160,10 @@ def main():
                     help="tag prefix for trial runs/dirs (e28 recipe search, "
                          "e35 AWP joint search) — keeps studies from colliding")
     ap.add_argument("--search_awp", action="store_true",
-                    help="E35: also search AWP knobs (gamma/adv_lr/start_epoch) "
+                    help="E38: also search AWP knobs (gamma/adv_lr/start_epoch) "
                          "jointly with the recipe, on top of the champion anchor")
     ap.add_argument("--enqueue_anchor", action="store_true",
-                    help="E35: enqueue the LB-validated config (champion recipe + AWP "
+                    help="E38: enqueue the LB-validated config (champion recipe + AWP "
                          "gamma1e-3/lr1e-4/start1 = LB 0.78557) as the first trial so "
                          "every result reads as a Delta vs a known-LB point. Pass on "
                          "ONE worker only (avoids duplicate anchors)")
@@ -174,7 +174,7 @@ def main():
         "cuInit failed — host driver is poisoned (see fleet memory); do not start trials"
 
     # Pruner: E28 used MedianPruner (kill trials below the median epoch-curve). For the
-    # AWP search (E35) we DISABLE pruning (NopPruner): AWP's benefit appears only in the
+    # AWP search (E38) we DISABLE pruning (NopPruner): AWP's benefit appears only in the
     # LATER epochs (it activates from start_epoch), so early-epoch pruning would risk
     # killing a slow-start-but-blooms config — and with epochs fixed at 4 on 16x5090,
     # the compute saved by pruning is marginal vs that downside. Run every trial full.
@@ -207,11 +207,11 @@ def main():
         sampler=sampler, pruner=pruner)
     if args.search_awp and args.enqueue_anchor and not study.get_trials(deepcopy=False):
         study.enqueue_trial({  # champion recipe + AWP defaults = LB 0.78557 (E34);
-            # 'epochs' omitted — it is fixed (=4), not a searched param for E35
+            # 'epochs' omitted — it is fixed (=4), not a searched param for E38
             "lr": 2e-5, "eff_batch": 16, "warmup_ratio": 0.05,
             "label_smoothing": 0.10, "weight_decay": 0.01,
             "awp_gamma": 1e-3, "awp_lr": 1e-4, "awp_start_epoch": 1})
-        logger.info("E35: enqueued LB-validated AWP config as anchor trial 0")
+        logger.info("E38: enqueued LB-validated AWP config as anchor trial 0")
     study.optimize(lambda t: run_trial(t, args), n_trials=args.n_trials,
                    gc_after_trial=True)
     best = study.best_trial

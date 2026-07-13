@@ -1,15 +1,22 @@
-# E35 · AWP hyperparameter search (Optuna) — `research/optuna` (E28 harness, round 2)
+# E38 · AWP hyperparameter search (Optuna) — `research/optuna` (E28 harness, round 2)
 
-**Status: 🏃 LAUNCHING (2026-07-13) — full search on rented 8×5090 (vast 44686633,
-16 workers = 2/GPU, SQLite local). Search space + code cross-checked (ranges match
-build_cmd suggest_* 1:1; anchor = enqueued LB-0.78557 config). Provisioning; CUDA/Blackwell
-+ VRAM gates before launch.**
+> **Renumbered E35 → E38 (2026-07-13)** — the original E35 collided with the noise-robust
+> experiment. The experiment number is **E38**; the LIVE run on vast keeps its `e35_*`
+> runtime names (study `e35_awp_granite`, db `e35.db`, `--exp e35`, `output/optuna/e35/`,
+> tags `e35_tNNN`) because it was launched before the renumber — harvest reads those paths.
+
+**Status: 🏃 RUNNING (2026-07-13) — 16 workers live on rented 8×5090 (vast 44689856,
+ssh1, 2/GPU SQLite-local). Gates passed: torch 2.7.1+cu128 runs on Blackwell sm_120
+(bf16 matmul OK); VRAM 13.3GB/trial → 2/GPU packs in 31GB (~26GB, 0 OOM). Trials
+generating (epochs=4 fixed, 8 params, NopPruner, anchor seeded). optuna installed into
+the vast venv `/venv/main` (not in requirements.txt). Harvest top configs → `--full_data`
+retrains → LB.**
 
 ## Motivation
 
 E34 AWP won at **blind defaults** (γ=1e-3, adv_lr=1e-4, start_epoch=1.0) → LB **0.78557**,
 new single-model SOTA (beats E28 t043fd 0.78155 and every prior single). AWP is a
-training-time lever with un-tuned knobs, so there is headroom. E35 tunes it with the E28
+training-time lever with un-tuned knobs, so there is headroom. E38 tunes it with the E28
 Optuna machinery (which found t043 = +0.0138 on fold and promoted to real LB gains).
 
 **Scope (user 2026-07-13): JOINT** — search the AWP knobs *and* the base recipe together,
@@ -73,9 +80,13 @@ Base recipe (minus epochs) + AWP knobs, **8 searched params**:
 - AWP training path itself already smoke-validated (E34). Dry-run 2026-07-13 confirmed the
   joint command assembles correctly (recipe + AWP knobs, `e35_t000` tag).
 - Launch (per worker): `CUDA_VISIBLE_DEVICES=<g> python -u -m src.optuna_search
-  --gpu_tag g<g> --n_trials 15 --exp e35 --search_awp --study e35_awp_granite
+  --gpu_tag g<g> --n_trials 200 --exp e35 --search_awp --study e35_awp_granite
   --db output/optuna/e35.db --out_dir output/optuna/e35` (+ `--enqueue_anchor` on g0).
 
 ## Results
 
 —
+
+---
+_Ops/launch gotchas for multi-worker vast runs (thread caps, venv python, dud hosts, etc.):
+[vast_multiworker_runbook.md](vast_multiworker_runbook.md)._
