@@ -142,6 +142,13 @@ def main():
                     help="session-grouped fold used as the search holdout")
     ap.add_argument("--study", default="e28_granite_ls")
     ap.add_argument("--db", default="output/optuna/e28.db")
+    ap.add_argument("--journal", default="",
+                    help="MULTI-BOX: path to a JournalStorage file on SHARED NFS "
+                         "(e.g. /nfs/dacon/output/optuna/e35_journal.log). When set, "
+                         "overrides --db (SQLite) — SQLite over NFS corrupts under "
+                         "cross-host locking; JournalStorage w/ symlink lock is NFS-safe. "
+                         "Point every worker on every box at the SAME path to share one "
+                         "distributed study.")
     ap.add_argument("--out_dir", default="output/optuna/trials")
     ap.add_argument("--exp", default="e28",
                     help="tag prefix for trial runs/dirs (e28 recipe search, "
@@ -165,9 +172,23 @@ def main():
     # values have AWP active by then).
     n_startup = 12 if args.search_awp else 8
     n_warmup = 2 if args.search_awp else 1
-    os.makedirs(os.path.dirname(args.db), exist_ok=True)
+    # Storage: SQLite (single box) or JournalStorage on shared NFS (multi-box). SQLite
+    # over NFS corrupts under cross-host POSIX locks; the journal's symlink lock is
+    # NFS-safe, so 2+ instances can drive ONE distributed study.
+    if args.journal:
+        from optuna.storages import JournalStorage
+        from optuna.storages.journal import (JournalFileBackend,
+                                             JournalFileSymlinkLock)
+        os.makedirs(os.path.dirname(args.journal) or ".", exist_ok=True)
+        storage = JournalStorage(
+            JournalFileBackend(args.journal, lock_obj=JournalFileSymlinkLock(args.journal)))
+        logger.info(f"storage: JournalStorage (NFS-safe symlink lock) @ {args.journal}")
+    else:
+        os.makedirs(os.path.dirname(args.db), exist_ok=True)
+        storage = f"sqlite:///{args.db}"
+        logger.info(f"storage: SQLite @ {args.db} (single-box only — NOT NFS-safe)")
     study = optuna.create_study(
-        study_name=args.study, storage=f"sqlite:///{args.db}",
+        study_name=args.study, storage=storage,
         load_if_exists=True, direction="maximize",
         sampler=optuna.samplers.TPESampler(multivariate=True, seed=None),
         pruner=optuna.pruners.MedianPruner(n_startup_trials=n_startup,
