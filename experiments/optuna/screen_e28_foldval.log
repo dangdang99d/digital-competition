@@ -1,0 +1,56 @@
+2026-07-13 08:21:57.883 | INFO     | src.runlog:log_cmd:16 - CMD: python experiments/optuna/screen_e28_foldval.py
+2026-07-13 08:22:01.238 | INFO     | __main__:main:45 - session-fold-0 holdout n=14000 (leak-free for fold-0 search models)
+2026-07-13 08:22:01.243 | INFO     | __main__:main:61 - forward: t007
+2026-07-13 08:27:04.788 | SUCCESS  | __main__:main:75 - t007: single F1 = 0.7616
+2026-07-13 08:27:04.788 | INFO     | __main__:main:61 - forward: t009
+2026-07-13 08:32:07.680 | SUCCESS  | __main__:main:75 - t009: single F1 = 0.7653
+2026-07-13 08:32:07.680 | INFO     | __main__:main:61 - forward: t011
+2026-07-13 08:37:11.630 | SUCCESS  | __main__:main:75 - t011: single F1 = 0.7669
+2026-07-13 08:37:11.631 | INFO     | __main__:main:61 - forward: t017
+2026-07-13 08:42:15.536 | SUCCESS  | __main__:main:75 - t017: single F1 = 0.7676
+2026-07-13 08:42:15.536 | INFO     | __main__:main:61 - forward: t019
+2026-07-13 08:47:18.002 | SUCCESS  | __main__:main:75 - t019: single F1 = 0.7692
+2026-07-13 08:47:18.002 | INFO     | __main__:main:61 - forward: t023
+2026-07-13 08:52:20.424 | SUCCESS  | __main__:main:75 - t023: single F1 = 0.7709
+2026-07-13 08:52:20.424 | INFO     | __main__:main:61 - forward: t043
+2026-07-13 08:57:25.654 | SUCCESS  | __main__:main:75 - t043: single F1 = 0.7719
+
+## Singles (session-fold-0 holdout, raw)
+| model | F1 |
+|---|---|
+| t043 | 0.7719 |
+| t023 | 0.7709 |
+| t019 | 0.7692 |
+| t017 | 0.7676 |
+| t011 | 0.7669 |
+| t009 | 0.7653 |
+| t007 | 0.7616 |
+
+## Best pairs
+| pair | F1 |
+|---|---|
+| t019+t023 | 0.7758 |
+| t023+t043 | 0.7757 |
+| t007+t023 | 0.7746 |
+| t011+t043 | 0.7744 |
+| t011+t023 | 0.7731 |
+| t007+t043 | 0.7731 |
+
+## Best trios
+| trio | F1 |
+|---|---|
+| t019+t023+t043 | 0.7774 |
+| t011+t019+t023 | 0.7759 |
+| t007+t019+t023 | 0.7757 |
+| t007+t023+t043 | 0.7757 |
+| t017+t019+t023 | 0.7755 |
+| t011+t023+t043 | 0.7753 |
+
+## Best quads
+| quad | F1 |
+|---|---|
+| t011+t019+t023+t043 | 0.7767 |
+| t007+t019+t023+t043 | 0.7767 |
+| t009+t019+t023+t043 | 0.7763 |
+| t017+t019+t023+t043 | 0.7763 |
+2026-07-13 08:57:26.097 | SUCCESS  | __main__:main:105 - best single t043 0.7719 | best pair ('t019', 't023') 0.7758 | best trio ('t019', 't023', 't043') 0.7774

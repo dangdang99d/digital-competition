@@ -1,0 +1,8 @@
+2026-07-13 12:05:52.075 | INFO     | src.runlog:log_cmd:16 - CMD: python experiments/ensemble/build_submission.py --runs output/optuna/vast_r1/final_fd/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e28_full_t019,output/optuna/vast_r1/final_fd/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e28_full_t023,output/optuna/vast_r1/final_fd/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e28_full_t043 --tags t019,t023,t043 --variants richargs,richargs,richargs --out submissions/submit_0713_e28_trio.zip --build_dir output/optuna/build_e28_trio --skip_parity
+2026-07-13 12:05:58.428 | INFO     | __main__:main:132 - used ids (richargs): 10,773
+2026-07-13 12:05:58.432 | INFO     | __main__:main:135 - keep 54,688 tokens (union-used 10,773 + margin 50,000)
+2026-07-13 12:06:10.303 | INFO     | __main__:main:166 - member_0_t019 (richargs): pruned fp16 -> output/optuna/build_e28_trio/model/member_0_t019 (306 MB)
+2026-07-13 12:06:22.808 | INFO     | __main__:main:166 - member_1_t023 (richargs): pruned fp16 -> output/optuna/build_e28_trio/model/member_1_t023 (306 MB)
+2026-07-13 12:06:35.167 | INFO     | __main__:main:166 - member_2_t043 (richargs): pruned fp16 -> output/optuna/build_e28_trio/model/member_2_t043 (306 MB)
+2026-07-13 12:06:35.445 | WARNING  | __main__:main:174 - PARITY SKIPPED (no GPU) — do NOT upload before a --parity_only PASS
+2026-07-13 12:07:20.526 | SUCCESS  | __main__:main:184 - submissions/submit_0713_e28_trio.zip: 842 MB OK under cap

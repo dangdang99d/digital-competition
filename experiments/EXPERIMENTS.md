@@ -32,8 +32,9 @@ working tree + live training). The table maps each group to its doc and experime
 | `research/ensemble` | [experiments/ensemble/results_e26.md](ensemble/results_e26.md) | E26 (checkpoint ensemble under submission constraints) |
 | `research/optuna` | [experiments/optuna/results.md](optuna/results.md) | E28 (optuna HPO, runs on **ocean2**) |
 | `research/compression` | [experiments/compression/results.md](compression/results.md) | **E31 combination SEARCH** + granite program board (status per method family, size↓ vs speed↑) — structured methods only; winning combo → the optimal model AFTER E30/E29 settle it; absorbs E4/E16/E16b/E18 follow-ups for granite |
-| `research/augmentation` | [experiments/augmentation/results.md](augmentation/results.md) | E32 (A: embedding-space noise FGM/R-Drop/NEFTune · B: structure-level hist_dropout/meta-jitter/view-mix) |
+| `research/augmentation` | [experiments/augmentation/results.md](augmentation/results.md) | E32 (PRIMARY A: embedding-space noise FGM/R-Drop/NEFTune · B demoted: hist_dropout filler, jitter parked, view-mix dropped) |
 | `research/moe` | [experiments/moe/results.md](moe/results.md) | E33 (jointly trained model-level MoE: 4 granite experts + controller, soft gate; FFN-level sparse PARKED) |
+| `research/noise-robust` | [experiments/noise-robust/results.md](noise-robust/results.md) | E35 (noise-robust training vs LS champion: A robust losses GCE/SCE/APL/bootstrap · B ELR · C dual-net co-teaching/JoCoR/DivideMix) |
 
 ## Dashboard
 
@@ -75,8 +76,12 @@ working tree + live training). The table maps each group to its doc and experime
 | E29 | stacking | **Learned head over the trio** (user opts, strict gate order: ① logreg on concatenated member OOF probs, null = uniform mean, gate ≥+0.002 honest CV → ② embedding-fusion head, concat 3×768 penultimate → linear/MLP → 14 → ③ per-row gating head, only if ② stalls). Ship = trio + winning head (head = KBs → packaging/time unchanged 6:52/836M); LB judges | uniform trio LB **0.78719** · w424 0.78709 (global weights ≈ uniform) · at 3.5k every fitted combiner LOST honest CV — E30's 70k OOF is the 20×-data retry | — | — | — | ❌ **CLOSED 2026-07-13 — uniform mean survives all 9 attempts** (4 arms × 2 objectives vs null 0.7745): best cell ①-balanced **+0.0007** (user's F1-objective diagnosis real, ≈+0.003, still under gate); ②-NLL/bal −0.046/−0.050 (capacity overfit) · ③-softF1 −0.0039 · ④ −0.0059/−0.0090 (gate collapses to e25c / batch-noisy soft-F1). Structural read: uniform averaging preserves member error-diversity at zero fitted params; every trained objective spends it. Honest-OOF uniform 0.7745 vs solos 0.764–0.767 reproduces the LB lift. Design in §E29 · data: [ensemble/results_e30.md](ensemble/results_e30.md) |
 | E30 | ensemble-oof | **E26 continuation — session-grouped OOF campaign + OOF-teacher distillation retry.** Phase 0: 15 fold-trainings (3 trio-member recipes × 5-fold `--session_fold`, 70k, E22 harvester skeleton upgraded: session-grouped folds · member recipes · probs AND penultimate embeddings) → the shared honest substrate for E29 + phase 1. Phase 1: distillation retry with OOF-harvested teacher (fixes 1B's in-sample near-one-hot harvest) + LS-in-CE finetune.py fix; gate: student ≥ champion 0.7803 → joins member pool. Byproduct: honest champion-recipe CL/PVI re-audit (E22 §4 ask) | trio LB **0.78719** (direct-package ceiling; 4th member breaks caps) · 1B students 0.7635–0.7728 ≪ champion 0.7803 (in-sample teachers ≈ noisy labels; plateau = champion−LS ≈ 0.7696) | — | — | — | ✅ **DONE 2026-07-12** — phase 0 ✅ honest OOF caches (validity: solo OOF 0.764–0.767 = fold logs; first harvest re-run after a fold-construction mismatch made it ~80% in-sample); teacher MSP 0.738; honest-OOF uniform mean 0.7745 reproduces the +0.008 LB ensemble lift. Phase 1 ❌ **distillation CLOSED** (honest teacher): students 0.7680–0.7753, all < champion 0.7803; α .5 > .7 ≫ 1, α=0 best → trio edge = inference-time averaging, not distillable. [ensemble/results_e30.md](ensemble/results_e30.md) |
 | E31 | compression | **Structured-compression combination SEARCH (granite)** — Stage A parallel axis screens (A1 depth incl. honest E16b rerun · A2 width FLAP-style · A3 FFN low-rank probe · A4 LTP ⛔ parked) each prune+recovery vs shared anchor; Stage B factorial over survivors, ONE joint recovery per combo, Pareto pick on (F1, ms/sample, params); Stage C transfer combo to the post-E30/E29 optimal model → package → LB. Base always: vocab-prune+fp16. Structured only (user: unstructured has no HW support) | champion recipe 0.7803 (anchor) · unpruned granite fp16 ms/sample | — | — | — | 🔲 **QUEUED** (user 2026-07-12) — awaits dispatch; A1 BI + A3 SVD probes are training-free starters. Board: [compression/results.md](compression/results.md) |
-| E32 | augmentation | **Training-time augmentation / noise** (professor's multi-view idea, adapted — translation/paraphrase closed by E15a + weak-semantic labels) — **A** embedding-space noise (A1 FGM adversarial · A2 R-Drop · A3 NEFTune) · **B** structure-level augmentation (B1 `--hist_dropout` screen — flag exists, never tested · B2 meta/field jitter · B3 richargs↔richmeta view mixing). All training-time: zero inference cost; winner lifts the single model AND adds a diverse ensemble-member candidate | champion E8a+LS richargs full_data CV **0.7803** (shared from-scratch anchor) | — | — | — | 🔲 **QUEUED** (user 2026-07-13) — design: [augmentation/results.md](augmentation/results.md) |
-| E33 | moe | **Model-level MoE, jointly trained** (user 2026-07-13: 1 controller · 4 experts · soft gate in training; controller = **shared trunk**, pinned) — shared vocab-pruned emb → shared granite trunk L1–6 (the "cutoff granite" IS the trunk) → gate MLP on pooled trunk + structure scalars (log1p hist-count, first-step flag) → 4 expert stacks L7–22 w/ own heads; LS-CE on gated prob blend + load-balance aux + entropy floor (anti-collapse, E29④ lesson); from scratch, champion recipe, shared init. THE untested combination mechanism: experts co-adapt under the router (all prior combos were post-hoc over frozen models). Rejected stage-1: separate cutoff controller (duplicate compute) · expert-features→gate (E29④ shape, kills top-k) → stage-2 only. FFN-level sparse upcycling ⛔ PARKED | champion 0.7803 (single anchor) · **uniform mean of its OWN 4 experts, gate bypassed** (the scientific null, free at eval) · trio LB 0.78719 (context) | — | — | — | 🔲 **QUEUED** (user 2026-07-13) — design: [moe/results.md](moe/results.md); T4 proj ~7:15 full / ~4:00 top-2; training needs vast GO |
+| E32 | augmentation | **Training-time augmentation / noise** (professor's multi-view idea, adapted) — Track A embedding-space noise (`--fgm_eps`/`--rdrop`+ls/`--neftune_alpha`) + B1 `--hist_dropout` filler; B2 parked, B3 dropped | champion full_data CV **0.7803** · anchor 0.7790 | ❌ **NET-NEGATIVE / flat — nothing beat champion.** FGM ε1.0 **0.7712** · R-Drop α1.0 **0.7716** · FGM ε0.5 **0.7734** (all HURT ~−0.007..−0.009; FGM ε-sweep monotonic → optimum ε=0) · NEFTune α5 **0.7794** · hist_dropout **0.7786** (flat). Adding noise erases signal on low-redundancy input | — | logits: `analysis/cache/e26_screen_logits_s3.npz` (all 5, `extract_e32_logits.py`) | ✅ **DONE — CLOSED NEGATIVE** (2026-07-13, vast 44640537 stopped). No arm promoted. ⚠️ GPU1 was FAULTY (blacklisted) — caused false "R-Drop unstable"/"FGM ε-bracket" NaN scares mid-run, corrected by controlled test. [augmentation/results.md](augmentation/results.md) |
+| E33 | moe | **Model-level MoE, jointly trained** (user 2026-07-13: 1 controller · 4 experts · soft gate in training; controller = **shared trunk**, pinned) — shared vocab-pruned emb → shared granite trunk L1–6 (the "cutoff granite" IS the trunk) → gate MLP on pooled trunk + structure scalars (log1p hist-count, first-step flag) → 4 expert stacks L7–22 w/ own heads; LS-CE on gated prob blend + load-balance aux + entropy floor (anti-collapse, E29④ lesson); from scratch, champion recipe, shared init. THE untested combination mechanism: experts co-adapt under the router (all prior combos were post-hoc over frozen models). Rejected stage-1: separate cutoff controller (duplicate compute) · expert-features→gate (E29④ shape, kills top-k) → stage-2 only. FFN-level sparse upcycling ⛔ PARKED | champion 0.7803 (single anchor) · **uniform mean of its OWN 4 experts, gate bypassed** (the scientific null, free at eval) · trio LB 0.78719 (context) | — | — | — | ❌ **DONE — clean NEGATIVE** (2026-07-13): all 4 blends **0.7686–0.7702, −0.010 to −0.012 below champion 0.7803** (champ-default k6 0.7702 = best; E28-tuned t043/t048/t023 no better → tuning didn't transfer). Shared-trunk experts individually weak (best solo ~0.75 < standalone granite); 1–2 experts DIE per run (argmax 0.0). Gate beats its uniform-null (+.007–.037) but via EXPERT-PRUNING not co-adaptation — differs from E29 yet still < champion. No submission (no marginal success). Design/data: [moe/results.md](moe/results.md); models NFS `output/moe_..._e33_moe_*`
+| E34 | adversarial | **Adversarial training — the full axis (FGM + PGD + AWP)**, canonical record: **A FGM** — one-shot embedding perturbation `ε·g/‖g‖` (✅ code ready `--fgm_eps`; **= E32-A1, ONE run cross-recorded on both boards**) · **B PGD-K** — multi-step inner max with ε-ball projection (drops FGM's one-step linearity assumption; ~(K+1)× step cost) · **C AWP** — adversarial WEIGHT perturbation (explicit flat-minima; Kaggle-NLP winner staple; ➖ prior: E13 SAM closed for near-zero variance headroom, same family). Training-time only: zero inference cost, packaging unchanged; winner lifts the single model AND adds a diverse member candidate | champion 0.7803 from-scratch anchor (SHARED with E32) · arm-A FGM result = the bar for B/C (escalation must beat the cheap version, not just the anchor) | champion anchor (in-env) **0.7733** | — | — | ✅ **STAGE 1 DONE 2026-07-13** (all 3 arms + anchor, vast E28_optuna_r1 4×3090, from-scratch champion recipe, best-epoch val macro-F1): **AWP 0.7804 (+0.0071) 🥇 PROMOTE** · FGM 0.7750 (+0.0017 marginal) · **PGD 0.7673 (−0.0060) ❌ close**. Axis inverted its prior — AWP (E13-discounted) won, PGD (recommended escalation) hurt; E13 no-flatness-headroom claim refuted for weight perturbation. AWP = best single-lever since LS (E9 +0.0107). ✅ **LB CONFIRMED: `submit_0713_awp.zip` → 0.78557, 5:10 = NEW SINGLE-MODEL SOTA** (+0.0040 vs t043fd, ties 2-granite pairs). → spawned **E35** (AWP-knob Optuna) + AWP is prime E26/E30 ensemble member. Models on NFS `output/e34/vast_r1/`. Design+results: [adversarial/results.md](adversarial/results.md) |
+| E35 | optuna-awp | **AWP hyperparameter search (Optuna, E28 harness round 2)** — E34 AWP won at BLIND defaults (γ1e-3/lr1e-4/start1 → LB 0.78557 single SOTA); tune it. **JOINT** search (user 2026-07-13): 9 params = E28 recipe-6 (lr/epochs/eff_batch/warmup/ε/wd) + AWP-3 (γ log 5e-4→5e-3 · adv_lr log 3e-5→3e-4 · start_epoch {0,1}), anchored at champion (recipe optimum may shift under adversarial loss). Session-fold-0 best-epoch objective, LB-validated config enqueued as anchor trial 0; promote top-2–3 via `--full_data` best-epoch (NOT all_data — E28 tail trap). start_epoch capped {0,1} so AWP active by ep2 (pruner stays meaningful) | AWP single LB **0.78557** (anchor) · E28 t043fd 0.78155 · trio 0.78719 | — | — | — | 🔲 **QUEUED (user 2026-07-13)** — ✅ code ready (`optuna_search.py --search_awp --exp e35`, additive default-off; dry-run verified). Awaiting rental GO. Design: [optuna/results_e35.md](optuna/results_e35.md) |
+
+| E35 | noise-robust | **Noise-robust training vs the LS champion** (~20% label noise) — the canonical noisy-labels toolkit E9 never screened: **Stage A** drop-in robust losses (GCE / SCE / NCE+RCE(APL) / bootstrap), each standalone + LS-stacked · **Stage B** ELR (per-sample early-learning EMA target) · **Stage C** dual-net sample selection (co-teaching / JoCoR / DivideMix). Bar = **beat LS**, not CE (E22: CE-recipe denoise wins vanish under LS; LS is already a noise damper). ~6% clean removable mislabel + ~40% irreducible ambiguity (E22 §1) → expect LS-magnitude gain at best | granite **CE 0.7458** / **LS ε=0.1 0.7565** (E9, standard 56k/14k split, from-scratch) · transfer target champion E8a+LS 0.7803 (full_data CV; LB judges) | — | — | — | 🟢 **CODE READY — all 8 arms** (user 2026-07-13 "implement all"): Stage A = `--loss gce/sce/apl/boot` in `src/finetune.py` (unit-tested, `--loss ce` byte-identical); Stage B = `elr.py`; Stage C = `co_teaching.py`/`jocor.py`/`dividemix.py` (faithful ports; DivideMix mixup→logit-space manifold mixup, documented). All smoke-tested end-to-end (Stage A + ELR on the 4060; dual-net on CPU/bert-tiny). **Nothing trained** — two-net arms need a ≥16GB box (OOM local 8GB/15GB). Run order: A (CE-first) → B → C. Design+commands: [noise-robust/results.md](noise-robust/results.md) |
 
 Status legend: ⏸ blocked-external · ⛔ gated · 🔎 analysis · 🏃 running · ✅ done · ❌ refuted
 New figures → `experiments/<branch>/figures/`; the `figures/` root holds pre-branch legacy plots.
@@ -429,38 +434,47 @@ submission conservative (2 members). LB judges (3.5k slice mis-ranks — E8 less
   cost, packaging/timing unchanged; a winner both lifts the single model and yields a
   diverse-regime member candidate for E26-style ensembling (which is where the "averaged
   outputs" half of the idea is already cashed, +0.008 LB).
-- **Track A — embedding-space noise (language-agnostic):**
-  - **A1 FGM adversarial training** (top pick): adversarial perturbation of the embedding
-    layer each step (Miyato et al.); start ε=1.0. ~1.5–2× train time. Official-code
-    invariant applies — diff against the most-starred reference impl, note which.
-  - **A2 R-Drop:** two dropout forward passes + symmetric-KL consistency (α=1 first;
-    official repo `dropreg/R-Drop`). ⚠ interaction with LS ε=0.1 must be kept — LS stays
-    in the CE term. Absorbs the old backlog rdrop item (never finished on the old box).
-  - **A3 NEFTune-style uniform embedding noise:** cheapest (few lines); run only if
-    A1/A2 show signal or a GPU is otherwise idle.
-- **Track B — structure-level augmentation (label-preserving by construction/evidence):**
-  - **B1 `--hist_dropout` screen:** flag ALREADY implemented (`serialize()` drops history
-    events per-epoch with prob p, `src/finetune.py:1144` dynamic path) but never screened.
-    p ∈ {0.05, 0.1, 0.2}. Eval always un-augmented (docstring: never use for eval).
-  - **B2 meta/field jitter:** random meta-subfield dropout (E24-B evidence: meta tail
-    drops are lossless) + history-truncation jitter (also softens the intrinsic
-    first-step weakness by making short-history inputs common in training). Needs new
-    additive `serialize()` args, default-off (backward-compat invariant).
-  - **B3 view mixing:** per-sample random richargs↔richmeta rendering each epoch (E25c:
-    equal info, 0.7801 ≈ 0.7803) → view-invariant model; enables an optional later
-    single-model test-time view-averaging probe (out of scope here).
+- **Track A — embedding-space noise (language-agnostic) — PRIMARY (✅ all 3 arms
+  implemented + smoke-tested 2026-07-13 — one tiny run each on the local 4060, exit 0,
+  lever log lines fired, artifacts reload; details in the results doc):**
+  - **A1 FGM adversarial training** (top pick): `--fgm_eps` (`make_fgm_trainer` —
+    clean pass, perturb embedding weight by ε·g/‖g‖₂, adversarial backward mirroring
+    v4.51.3 `training_step` normalization, exact restore; wraps the final trainer_cls
+    so it composes with `--loss ls`; asserted off for distill/LTP). Start ε=1.0.
+    ~2× step cost. Reference = Miyato et al. `adversarial_text` formula / standard
+    PyTorch FGM class; divergences documented in the docstring.
+  - **A2 R-Drop:** `--rdrop α + --loss ls` now legal — `make_aux_trainer` gained
+    `ce_mode="ls"` (E30-style fix: LS inside ALL training CE terms; default "ce"
+    byte-identical to before). α=1 first; loss shape matches official
+    `dropreg/R-Drop`. Absorbs the old backlog rdrop item.
+  - **A3 NEFTune:** `--neftune_alpha` → HF Trainer built-in `neftune_noise_alpha`
+    (4.51.3 ships the official neelsjain/NEFTune hook — reference-impl invariant
+    satisfied by construction). Run only if A1/A2 show signal or a GPU is idle.
+- **Track B — structure-level augmentation — DEMOTED (user 2026-07-13: expected minimal
+  benefit; E24-B "lossless but no gain" cuts both ways — fields the model barely uses
+  are shortcuts not worth starving):**
+  - **B1 `--hist_dropout`:** flag ALREADY implemented (`serialize()` per-epoch event
+    drops, `src/finetune.py:1144`) — **idle-GPU filler ONLY**, not a stage-1 slot;
+    p=0.1 single probe if run. Eval always un-augmented.
+  - **B2 meta/field jitter:** ⏸ PARKED — do NOT implement unless Track A wins and the
+    combo stage wants a data-side partner.
+  - **B3 view mixing:** ❌ DROPPED (user) — trio already banks view diversity via the
+    e25c_richmeta member; a mixed model plausibly lands between the two view optima.
 - **Design:** champion recipe (E8a+LS richargs full_data bf16) + exactly ONE lever per
   arm, **from scratch — never warm-start** (E24 recovery trap); all arms share the same
-  from-scratch anchor + eval slice. Stage 1 = one config per arm (5 trainings: A1 A2 B1
-  B2 B3 ≈ one fleet wave); stage 2 = sweep the strength knob of anything that clears the
-  gate; stage 3 (optional) = best-A × best-B combo only if BOTH clear.
+  from-scratch anchor + eval slice. Stage 1 = A1 + A2 (2 trainings); stage 2 = sweep
+  the strength knob (ε / α) of anything that clears the gate, + A3 if signal; stage 3
+  (optional) = combine winners.
 - **Gates:** promote at ≥ +0.003 full_data CV vs champion 0.7803. Marginal +0.001–0.003
   → keep as ensemble-member candidate (diverse training regime, zero inference cost),
   judged by honest OOF / LB, not the slice (E8/E26 invariant: slice mis-ranks — LB judges
   any final claim).
 - **Cost:** each arm ≈ one granite full-FT ~4–5 h/3090 (A1/A2 ~2× that: extra
   forward/backward or double pass).
-- **Status:** 🔲 QUEUED. **Result:** —
+- **Status:** 🔲 QUEUED — **code ready + smoke ✅** (Track A implemented 2026-07-13:
+  `--fgm_eps` / `--rdrop`+`--loss ls` fix / `--neftune_alpha`, all additive &
+  default-off; per-arm smoke runs on the local 4060 all pass — ready for stage-1
+  dispatch on real GPUs). **Result:** —
 
 ### E33 · Model-level MoE — jointly trained 4 experts + controller (user 2026-07-13) — 🔲 QUEUED — design: [moe/results.md](moe/results.md)
 
@@ -505,7 +519,119 @@ submission conservative (2 members). LB judges (3.5k slice mis-ranks — E8 less
   data/serialize plumbing; `src/finetune.py` untouched (additive invariant). Shared trunk
   cuts training to ~3.2 pass-equivalents; if one 3090 still can't hold it at champion bs
   → grad-ckpt or expert-parallel on vast. **Needs vast GO before dispatch.**
-- **Status:** 🔲 QUEUED — implementation in progress (2026-07-13); nothing launched. **Result:** —
+- **Status:** 🏃 **4 RUNS RUNNING on vast 2026-07-13** (`sandbox_4x_40gb`, one/GPU):
+  GPU0 `e33_moe_k6` champion-default baseline (bs4×ga4, 3ep) + GPU1-3 the **E28 optuna
+  top-3** tuned HPs — `e33_moe_t043` (lr2.6e-5/eb8/wu.103/ε.187/wd.057), `_t048`
+  (lr3.52e-5/ε.174/wd.059), `_t023` (lr4.35e-5/ε.116/wd.010), all `--full_data --epochs 4`
+  best-epoch (E28's ep5 = overfit-tail artifact; `--all_data` promotion cratered to LB
+  0.75934). Code smoke-tested (dense-parity EXACT). All bf16 ~13.7GB/24, confirmed live.
+  Watcher waits on all 4 `/workspace/DONE_e33*` sentinels. Read-out per run: blend vs its
+  own uniform-null vs solos + gate usage/entropy.
+- **Result (❌ CLOSED 2026-07-13, clean NEGATIVE):** blends **k6 0.7702 · t023 0.7695 ·
+  t043 0.7687 · t048 0.7686** — all −0.010 to −0.012 below champion 0.7803 (and ≪ trio
+  0.78719); E28 tuning gave no lift over champion defaults (architecture is the ceiling, not
+  the recipe). Shared-trunk experts individually weak (best solo ~0.75); **1–2 experts DIE
+  per run** (argmax-share 0.0). Gate beats its uniform-null every run (+0.007…+0.037) but by
+  **expert-pruning** (routing around dead experts), NOT co-adaptation — a real contrast with
+  E29 (jointly-trained gate *can* beat uniform), yet still short of champion. Partial expert
+  death (not E29-④ full collapse; entropy 1.10–1.22/1.386). No submission built (no marginal
+  success). Stage-2 (trunk_k sweep / fewer experts) parked — unlikely to clear champion.
+  Models on NFS `output/moe_..._e33_moe_{k6,t043,t048,t023}/`. Report: [moe/results.md](moe/results.md).
+
+### E34 · Adversarial training — the full axis: FGM + PGD + AWP (user 2026-07-13) — ✅ AWP WINS: 🥇 **LB 0.78557 single-model SOTA** (5:10) · FGM +0.0017 marginal · PGD −0.0060 close — results: [adversarial/results.md](adversarial/results.md)
+
+- **Objective:** canonical record for the adversarial-training axis — perturb the training
+  signal toward worst case, train to be correct anyway. Three standard methods, differing
+  in what is perturbed and how carefully: **FGM** (one-step input side) · **PGD** (iterated
+  input side) · **AWP** (weight side). All training-time only — zero inference cost,
+  packaging and server timing unchanged; a winner lifts the single model and adds a
+  diverse-regime ensemble-member candidate (different training dynamics ⇒ different
+  errors).
+- **Arm A — FGM (= E32-A1, ONE run double-recorded):** one gradient-direction step on the
+  embedding weight `ε·g/‖g‖`, second forward/backward, exact restore. ε=1.0, 2× step
+  cost. ✅ code ready (`--fgm_eps`, `make_fgm_trainer`, composes with `--loss ls`);
+  physically dispatched as E32's embedding-noise arm A1 — its numbers land on BOTH boards,
+  and here it is the axis opener whose result gates B/C.
+- **Arm B — PGD-K (input perturbation, iterated):** replace FGM's single step with K small
+  steps, each followed by projection back into the ε-ball: `δ ← Π_{‖δ‖≤ε}(δ + α·g/‖g‖)`.
+  Finds a stronger inner max than FGM's local-linear approximation. Stage-1 config:
+  K=3, α=0.3, ε=1.0, same wrap point as `make_fgm_trainer` (composes with `--loss ls`).
+  Cost ~(K+1)× step time (~4× ⇒ roughly 5h/run on a 3090 at full_data).
+- **Arm C — AWP (weight perturbation):** per step, find the relative-norm-bounded weight
+  perturbation that most increases the loss (`v ∝ γ·‖w‖·ĝ`), compute the training gradient
+  at `w+v`, restore, step — trains into flat minima explicitly. Enable from epoch 2
+  (early training too unstable). Stage-1 config: γ=1e-3, adversarial LR 1e-4, encoder+head
+  scope. Cost ~2.5×. **➖ prior:** E13 SAM (same flat-minima family) was closed by analysis —
+  near-zero run-to-run variance left no flatness headroom to harvest.
+- **Protocol:** from-scratch under the champion recipe vs the SAME from-scratch anchor as
+  E32 (E24 trap: never warm-start; one shared anchor keeps all noise arms comparable).
+  If the E28 `--full_data` promotion validates on LB first, switch recipe AND anchor to
+  t043 together. Screen on the honest session-grouped split (3.5k slice mis-ranks — E8).
+- **Gates:** arm A dispatches with E32 stage 1 (no gate of its own). **B/C dispatch on A's
+  result:** FGM ≥ +0.003 vs anchor → run B+C · FGM ∈ (0, +0.003) → B only · FGM ≤ 0 →
+  close B/C unrun (axis dead).
+- **Read-outs (promotion):** escalation arm > FGM by ≥ +0.002 → replaces FGM as the axis
+  pick, member candidate for the ensemble pool; arm ≈ FGM → keep FGM (cheaper, fewer
+  knobs); both ≤ FGM → close, FGM is the final word on the axis.
+- **Implementation:** ✅ ALL THREE ARMS code ready + smoke-tested 2026-07-13 (arm A via
+  E32). B `--pgd_eps/--pgd_alpha/--pgd_k` (`make_pgd_trainer`: iterate + ε-ball project;
+  intermediate directions via `torch.autograd.grad` — no model-size grad backup, divergence
+  from the reference class documented on the board) · C `--awp_gamma/--awp_lr/
+  --awp_start_epoch` (`make_awp_trainer`: Kaggle-AWP port, `*weight*` name filter,
+  elementwise γ-box clamp). All adversarial levers mutually exclusive (hard assert) and
+  asserted off for `--distill_from`/LTP. Smoke on the local 4060 (E32 protocol): both exit
+  0, lever lines fired, eval sane, ~4×/~2× step cost visible; smoke-only accommodations =
+  `--optim adafactor` (8GB card) and `--awp_start_epoch 0` (⚠ default 1.0 never activates
+  in a sub-epoch run — override in any short validation). Details:
+  [adversarial/results.md](adversarial/results.md).
+
+### E35 · Noise-robust training — robust losses + sample selection vs the LS champion (user 2026-07-13) — 🟢 CODE READY (all 8 arms, smoke-tested; needs a box) — design: [noise-robust/results.md](noise-robust/results.md)
+- **Objective:** the task carries ~20% label noise; test whether dedicated noise-robust methods
+  **beat or stack with LS ε=0.1** (champion). E9's loss screen covered only CE/focal/LS/wce/la —
+  GCE/SCE/APL/bootstrap/ELR/co-teaching/DivideMix are untested here.
+- **Baseline / anchors (granite, standard 56k/14k split, from-scratch):** CE **0.7458** (E9
+  attribution floor) · **LS ε=0.1 0.7565 (E9) = THE bar**. Report Δ vs BOTH — "beats CE, loses to
+  LS" = a worse LS → close it. Transfer target = champion E8a+LS richargs `--full_data` 0.7803
+  (full_data CV mis-ranks → **LB judges**). Guardrails: from-scratch never warm-started (E24 trap),
+  standard split not `--full_data` (contaminated for ranking).
+- **Why beat-LS, not beat-CE:** LS is itself a noise-robust regularizer, and E22 proved CE-recipe
+  denoise gains vanish under LS (−0.004 to −0.010). Noise is asymmetric/class-conditional on 4
+  synonymous file-ops; ~6% clean removable mislabel + ~40% irreducible ambiguity (E22 §1) → expect
+  an LS-magnitude gain at best, real chance of null. Granite screen = FILTER not ranking (E8 reversal).
+- **Stage A — robust-loss battery** (drop-in `classification_loss`/`--loss` modes, single network,
+  each standalone vs LS + survivors probed LS-stacked): **A1 GCE** (`--gce_q`, q∈{0.4,0.7,1.0}) ·
+  **A2 SCE** (`--sce_alpha/beta`) · **A3 NCE+RCE / APL** (`--apl_alpha/beta`) · **A4 bootstrap**
+  (`--boot_beta/mode`, soft/hard). Additive to `src/finetune.py`, `--loss ce` stays byte-identical.
+- **Stage B — ELR** (`--elr_lambda`, EMA γ) — per-sample early-learning target buffer keyed by a
+  stable row id threaded through `src/data.py`; anchors to the pre-memorization belief, cancels
+  gradients on disagreed samples. Strongest single-net method. **Gate:** fires only if best Stage-A
+  arm ≥ LS − 0.002 (else ELR runs once as the strongest-single-net sanity check, lane closes).
+- **Stage C — dual-net sample selection** (co-teaching / JoCoR / DivideMix; 2× compute, separate
+  entry point `experiments/noise-robust/`, NOT in finetune.py). **= [E22](coreset/results.md)'s
+  never-run "Group 3"** (co-teaching/MentorNet/DivideMix/SELFIE) — a revival, not a new idea.
+  **⛔ Gated** on an A/B champion-confirmed win; a priori redundant with E22's denoising discount.
+- **⚠️ E22 negative prior (confirmed overlap check):** E9 screened only CE/focal/LS/wce/la — the
+  robust losses + ELR are genuinely untested. But E22 showed data-denoising HELPED CE (+0.005–0.006)
+  and FAILED under LS (−0.0103) because **LS already absorbs the noise**; GCE/SCE/APL/ELR are
+  adaptive-LS, so expect match-or-lose vs the LS bar. → screen CE-recipe first (headroom exists
+  there), LS-confirm only survivors; Stage C likely dead-on-arrival under LS.
+- **Invariant — official code first:** diff each impl vs authors' repo (GCE Zhang-Sabuncu'18 ·
+  SCE `YisenWang/symmetric_cross_entropy_for_noisy_labels` · APL `HanxunH/Active-Passive-Losses` ·
+  ELR `shengliu66/ELR` · co-teaching `bhanML/Co-teaching` · JoCoR `hongxin001/JoCoR` · DivideMix
+  `LiJunnan1992/DivideMix`) before trusting numbers.
+- **Gates:** promote to champion-confirm only if an arm beats LS by ≥ +0.003 (E9/E22 bar; slice
+  noise ≈ ±0.003) → confirm on champion recipe → qwen3 → LB. Marginal confirm win ⇒ build zip
+  (no logit_bias; user uploads). Every result: verbatim command + log path + Δ-vs-anchor figure.
+- **Implementation (✅ 2026-07-13, user "implement all"):** Stage A = `src/finetune.py` `--loss
+  gce/sce/apl/boot` (+ hyperparams `--gce_q`/`--sce_alpha,beta`/`--apl_alpha,beta`/`--boot_beta,mode`;
+  `classification_loss`+`make_loss_trainer` extended, `--loss ce` byte-identical, unit-tested: finite
+  grads, GCE q→0≈CE/q=1≈MAE). Stage B = `experiments/noise-robust/elr.py` (EMA target buffer +
+  index-collate; `--ce_mode ls` primary). Stage C = `co_teaching.py`/`jocor.py`/`dividemix.py` (faithful
+  ports of bhanML/hongxin001/LiJunnan1992; **DivideMix deviation**: image input-mixup → logit-space
+  manifold mixup [exact for the linear head] + dropout views, documented per the official-code invariant).
+  All smoke-tested end-to-end (Stage A + ELR on the 4060; dual-net on CPU + a bert-tiny stand-in).
+- **Status:** 🟢 CODE READY — all 8 arms coded + smoke-tested; **nothing trained** (local 8GB GPU / 15GB
+  RAM can't hold the two-net arms — need a ≥16GB box). Awaits box assignment. **Result:** —
 
 ### Backlog / housekeeping
 - rdrop (disc task 0) never finished on the old box — superseded in spirit by supcon's

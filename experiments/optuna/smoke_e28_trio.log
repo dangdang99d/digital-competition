@@ -1,0 +1,4 @@
+member done: member_0_t019 (richargs)
+member done: member_1_t023 (richargs)
+member done: member_2_t043 (richargs)
+Saved output/submission.csv rows=5 | members=['member_0_t019', 'member_1_t023', 'member_2_t043'] | bs=128

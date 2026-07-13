@@ -1,7 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=dacon
 #SBATCH --partition=batch
-#SBATCH --qos=normal
 ##SBATCH --nodelist=pat-t3          # uncomment to pin to a specific node
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4

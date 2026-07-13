@@ -1,6 +1,11 @@
 # E32 · Training-time augmentation / noise — `research/augmentation`
 
-**Status: 🔲 QUEUED (user 2026-07-13). Code ready + smoke-tested ✅; stage-1 trainings not yet dispatched.**
+**Status: ✅ DONE — CLOSED NEGATIVE (2026-07-13, vast 44640537). All 5 runs finished.
+NOTHING beat champion 0.7803: adversarial/consistency noise HURTS (FGM ε1.0 0.7712 /
+R-Drop 0.7716 / FGM ε0.5 0.7734), gentle noise FLAT (NEFTune 0.7794 / hist_dropout
+0.7786). No arm promoted. Logits for all 5 cached (e26_screen_logits_s3.npz). Instance
+stopped (not destroyed). ⚠️ GPU1 was faulty (blacklisted) — caused false "R-Drop
+unstable"/"FGM ε-bracket" NaN scares mid-run; corrected. See Verdict + GPU1 note.**
 
 ## Motivation
 
@@ -31,10 +36,10 @@ only as an idle-GPU filler because it needs zero code.
 
 | Arm | Priority | Lever | Config (stage 1) | Impl status | Result (Δ vs anchor) |
 |-----|----------|-------|------------------|-------------|----------------------|
-| A1 | **stage 1** | FGM adversarial perturbation on the embedding layer (Miyato et al.) — **doubles as E34-A**: one run, result cross-recorded on the [E34 adversarial-axis board](../adversarial/results.md), where it gates the PGD/AWP escalations | ε=1.0 | ✅ **implemented 2026-07-13** — `--fgm_eps` (`make_fgm_trainer`, wraps the final trainer_cls so both passes inherit the recipe's loss); **smoke ✅** (see below) | — |
-| A2 | **stage 1** | R-Drop: two dropout passes + symmetric KL (official `dropreg/R-Drop`) | α=1.0, LS kept in CE term | ✅ **fixed 2026-07-13** — `make_aux_trainer` gained `ce_mode="ls"` (E30-style: LS inside ALL training CE terms — first pass, second pass, weighted); the `--loss ls` × aux assert relaxed to ce/ls; default `ce_mode="ce"` byte-identical to before; **smoke ✅** (see below) | — |
-| A3 | gated | NEFTune-style uniform embedding noise | α=5 | ✅ **implemented 2026-07-13** — `--neftune_alpha` passes through to HF Trainer's built-in `neftune_noise_alpha` (transformers 4.51.3 ships the official neelsjain/NEFTune hook verbatim — reference-impl invariant satisfied by construction) | — |
-| B1 | filler | `--hist_dropout` (per-epoch random history-event drop) | p=0.1 single probe | **flag already exists** (`serialize()` + dynamic path `src/finetune.py:1144`), never screened — idle-GPU filler only (user: minimal expected benefit) | — |
+| A1 | **stage 1** | FGM adversarial perturbation on the embedding layer (Miyato et al.) — **doubles as E34-A**: one run, result cross-recorded on the [E34 adversarial-axis board](../adversarial/results.md) | ε=1.0 | ✅ **implemented 2026-07-13** — `--fgm_eps` (`make_fgm_trainer`) | **0.7750 · +0.0017 vs anchor 0.7733** (2026-07-13, vast). Marginal — member candidate, sub-gate. ⚠ AWP (E34-C) beat it +0.0054 → AWP is the axis pick, not FGM |
+| A2 | **running (healthy)** | R-Drop: two dropout passes + symmetric KL (official `dropreg/R-Drop`) | α=1.0, LS kept in CE term, bs2×accum8 (co-located w/ B1 on GPU3) | code ✅. ⚠️ First two attempts NaN'd on the **faulty GPU1** (not R-Drop). Re-run on healthy GPU3 **trains fine** (finite loss ~22 incl. KL term, no divergence) → **R-Drop is NOT unstable**; the "needs KL-warmup" note was wrong | — |
+| A3 | done | NEFTune-style uniform embedding noise | α=5 | ✅ implemented 2026-07-13 — `--neftune_alpha` → HF Trainer built-in `neftune_noise_alpha` (official neelsjain/NEFTune hook) | **0.7794** (full_data CV, GPU2) · −0.0009 vs champion 0.7803, +0.0004 vs from-scratch anchor 0.7790 → **flat, sub-gate** |
+| B1 | done (filler) | `--hist_dropout` (per-epoch random history-event drop) | p=0.1 single probe | flag already existed (`serialize()` + dynamic path `src/finetune.py:1144`), never screened | **0.7786** (full_data CV, GPU3) · −0.0017 vs champion, −0.0004 vs anchor 0.7790 → **flat, sub-gate** |
 | B2 | ⏸ parked | meta-subfield dropout + history-truncation jitter | — | do NOT implement unless Track A wins and the combo stage wants a data-side partner | — |
 | B3 | ❌ dropped | ~~view mixing: richargs↔richmeta per epoch~~ | — | dropped (user 2026-07-13): trio already holds view diversity (e25c member); mixing risks landing between the view optima | — |
 
@@ -92,4 +97,59 @@ grad_accum×4 display quirk, not instability. ⚠ smoke ≠ recipe validation: m
 
 ## Results
 
-—
+**Stage-1 run 2026-07-13 (vast instance 44640537, 4× RTX 3090, champion recipe granite
+richargs `--full_data --loss ls 0.1 --epochs 3 --lr 2e-5 --bs4×accum4 --max_len 512
+--seed 42`, one lever per GPU). `/venv/main/bin/python -m src.finetune`.** Results
+auto-rsynced to `output/pat/ft_..._<tag>/` on per-arm completion.
+
+Anchors: champion full_data CV **0.7803**; from-scratch full-input anchor **0.7790**
+(E24). Gate = ≥ +0.003. These are 3500-slice full_data CV — a screen, not LB-rankable
+(E8/E26: slice mis-ranks — LB judges finals).
+
+| Run | Lever | GPU | full_data CV | vs champ 0.7803 | vs anchor 0.7790 | verdict |
+|-----|-------|-----|--------------|------------------|-------------------|---------|
+| A3 NEFTune | `--neftune_alpha 5` | 2 | **0.7794** | −0.0009 | +0.0004 | ✅ flat, sub-gate |
+| B1 hist_dropout | `--hist_dropout 0.1` | 3 | **0.7786** | −0.0017 | −0.0004 | ✅ flat, sub-gate |
+| s2 FGM ε=0.5 | `--fgm_eps 0.5` | 2 | **0.7734** | −0.0069 | −0.0056 | ✅ **HURTS** (less than ε=1.0) |
+| A2 R-Drop α=1.0 | `--rdrop 1.0` (bs2×accum8) | 3 | **0.7716** | −0.0087 | −0.0074 | ✅ **HURTS** |
+| A1 FGM ε=1.0 | `--fgm_eps 1.0` | 0 | **0.7712** | −0.0091 | −0.0078 | ✅ **HURTS** (worst) |
+
+### ✅ VERDICT (all 5 done 2026-07-13) — Track A embedding-space augmentation is NET-NEGATIVE / flat for this task
+
+**Nothing beat the champion (0.7803) or even the from-scratch anchor (0.7790).** Two clusters:
+- **Adversarial / consistency noise HURTS ~−0.007 to −0.009:** FGM ε=1.0 **0.7712**, R-Drop
+  α=1.0 **0.7716**, FGM ε=0.5 **0.7734**. The FGM ε sweep is **monotonic toward ε=0**
+  (0.5 hurts less than 1.0) → the optimum is *no* adversarial perturbation. R-Drop's KL
+  consistency term likewise degrades.
+- **Gentle noise is FLAT:** NEFTune α=5 **0.7794**, hist_dropout 0.1 **0.7786** — within
+  noise of the anchor, neither near the +0.003 gate.
+
+**Interpretation:** the input is low-redundancy (E24) and the labels weakly semantic; adding
+noise — in embedding space (FGM/R-Drop/NEFTune) or history structure (hist_dropout) — either
+does nothing or actively erases signal. The professor's "average over augmented inputs" idea,
+adapted to this task, does **not** help under the champion recipe. **No arm promoted; no
+ensemble-member candidate** (all sub-anchor). E32 CLOSED negative. (Stage-2/3 moot — no arm
+cleared the gate.) ⚠️ GPU1 fault (below) caused false intermediate NaN scares; corrected.
+
+**Logits:** all 5 models' held-out logits extracted on the local 4060 (fp32, 3.5k held-out,
+richargs) → `analysis/cache/e26_screen_logits_s3.npz` (`extract_e32_logits.py`); self-checks
+match training within fp16-save rounding. Available for later ensemble search, though all
+sub-anchor. Instance 44640537 **stopped** (not destroyed) after harvest.
+⚠️ Note: the A1 arms-table row carries a **cross-recorded FGM number from the shared
+E34 adversarial run** (0.7750 vs E34's own anchor 0.7733) — different anchor than E32's;
+E32's own FGM full_data CV lands when A1 above finishes. AWP (E34-C) reportedly beat FGM
+on that axis (see [E34 board](../adversarial/results.md)).
+
+### ⚠️ FAULTY GPU1 on vast instance 44640537 (2026-07-13)
+
+**GPU1 produces NaN gradients on any training run**, while GPU0/2/3 are fine. Isolated
+by a controlled test: **FGM ε=1.0, the exact config running healthy on GPU0, NaN'd
+immediately on GPU1** (loss 9.2e4/grad nan) — same code, seed, hyperparameters, only the
+GPU differs. Basic matmul on GPU1 passes (no ECC on consumer 3090s), so the fault is
+load-dependent. **Every "divergence" attributed to a method was actually GPU1:**
+- R-Drop α=1.0 & α=0.5 (GPU1) → NaN — **NOT a real R-Drop instability; being re-tested.**
+- FGM ε=2.0 & ε=0.5 (GPU1) → NaN — **the ε≤1.0 "bracket" is INVALID; ε=1.0 (GPU0) is the
+  only valid FGM point so far.**
+GPU1 blacklisted; usable GPUs on this box = 0/2/3 only.
+
+Numbers land when the runs finish (full_data CV vs champion 0.7803). —

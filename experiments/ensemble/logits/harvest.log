@@ -1,0 +1,135 @@
+2026-07-13 12:20:15.295 | SUCCESS  | __main__:main:126 - _meta.npz written: n=3500
+2026-07-13 12:20:15.311 | INFO     | __main__:record:116 - tag=e16b_granite_ls_depth11 | decision=drop_lowf1 | self_f1=0.0451 | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:15.385 | INFO     | __main__:record:116 - tag=e22_pvi06_champion | decision=ok | self_f1=0.7697 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:15.454 | INFO     | __main__:record:116 - tag=e25c_richmeta_ls_bf16 | decision=ok | self_f1=0.7792 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:15.544 | INFO     | __main__:record:116 - tag=e9_granite_ce | decision=ok | self_f1=0.7343 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:15.636 | INFO     | __main__:record:116 - tag=e9_granite_ls | decision=ok | self_f1=0.7493 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:15.726 | INFO     | __main__:record:116 - tag=estack_v2_tapt_richargs_ls | decision=ok | self_f1=0.7771 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:15.817 | INFO     | __main__:record:116 - tag=e12soup_granite_ls_is2 | decision=ok | self_f1=0.769 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:15.826 | INFO     | __main__:record:116 - tag=e16b_granite_ls_depth14_v2 | decision=drop_lowf1 | self_f1=0.1846 | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:15.908 | INFO     | __main__:record:116 - tag=e25a_miseo_repro | decision=ok | self_f1=0.7692 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:15.998 | INFO     | __main__:record:116 - tag=e8a_granite_richargs_full | decision=ok | self_f1=0.769 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.089 | INFO     | __main__:record:116 - tag=e9_granite_focal | decision=ok | self_f1=0.7304 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.158 | INFO     | __main__:record:116 - tag=e9_granite_wce | decision=ok | self_f1=0.7429 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.227 | INFO     | __main__:record:116 - tag=granite_names_ls_full | decision=ok | self_f1=0.773 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.295 | INFO     | __main__:record:116 - tag=e8b_qwen3_richargs_full | decision=ok | self_f1=0.7643 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.363 | INFO     | __main__:record:116 - tag=coreset_rt_aum06 | decision=ok | self_f1=0.7487 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.431 | INFO     | __main__:record:116 - tag=coreset_rt_cart15 | decision=ok | self_f1=0.7397 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.500 | INFO     | __main__:record:116 - tag=coreset_rt_el2n15 | decision=ok | self_f1=0.7346 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.568 | INFO     | __main__:record:116 - tag=coreset_rt_pvi15 | decision=ok | self_f1=0.7498 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.638 | INFO     | __main__:record:116 - tag=e12soup_granite_ls_is3 | decision=ok | self_f1=0.7786 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.706 | INFO     | __main__:record:116 - tag=e22_aum06_champion | decision=ok | self_f1=0.7763 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.774 | INFO     | __main__:record:116 - tag=e25b_miseo_ls_bf16 | decision=ok | self_f1=0.7735 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.842 | INFO     | __main__:record:116 - tag=e8a_ls_richargs_full | decision=ok | self_f1=0.7801 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:16.933 | INFO     | __main__:record:116 - tag=e9_granite_la | decision=ok | self_f1=0.7387 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:17.024 | INFO     | __main__:record:116 - tag=e_stack_tapt_ls_richargs_full | decision=ok | self_f1=0.7727 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:17.093 | INFO     | __main__:record:116 - tag=e16_qwen3_depth14_recover | decision=ok | self_f1=0.7629 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:17.161 | INFO     | __main__:record:116 - tag=e8b_ls_qwen3_richargs_full | decision=ok | self_f1=0.7657 | clean=True | serialize=cache | source=e26_screen_logits.npz
+2026-07-13 12:20:17.172 | INFO     | __main__:record:116 - tag=e16b_granite_ls_depth11 | decision=drop_lowf1 | self_f1=0.0451 | serialize=cache | source=e26_screen_logits_s0.npz
+2026-07-13 12:20:17.197 | INFO     | __main__:record:116 - tag=e16b_granite_ls_depth14_v2 | decision=drop_lowf1 | self_f1=0.1846 | serialize=cache | source=e26_screen_logits_s1.npz
+2026-07-13 12:20:17.275 | INFO     | __main__:record:116 - tag=e32_a1_fgm | decision=ok | self_f1=0.7709 | clean=True | serialize=cache | source=e26_screen_logits_s3.npz
+2026-07-13 12:20:17.365 | INFO     | __main__:record:116 - tag=e32_a3_neft | decision=ok | self_f1=0.7785 | clean=True | serialize=cache | source=e26_screen_logits_s3.npz
+2026-07-13 12:20:17.433 | INFO     | __main__:record:116 - tag=e32_b1_hdrop | decision=ok | self_f1=0.778 | clean=True | serialize=cache | source=e26_screen_logits_s3.npz
+2026-07-13 12:20:17.524 | INFO     | __main__:record:116 - tag=e28_full_t017 | decision=ok | self_f1=0.7745 | clean=True | serialize=cache | source=e28fd_screen_logits.npz
+2026-07-13 12:20:17.615 | INFO     | __main__:record:116 - tag=e28_full_t023 | decision=ok | self_f1=0.77 | clean=True | serialize=cache | source=e28fd_screen_logits.npz
+2026-07-13 12:20:17.706 | INFO     | __main__:record:116 - tag=e28_full_t043 | decision=ok | self_f1=0.7706 | clean=True | serialize=cache | source=e28fd_screen_logits.npz
+2026-07-13 12:20:17.797 | INFO     | __main__:record:116 - tag=e28_full_t048 | decision=ok | self_f1=0.7698 | clean=True | serialize=cache | source=e28fd_screen_logits.npz
+2026-07-13 12:20:17.808 | INFO     | __main__:record:116 - tag=t048_e0 | decision=drop_lowf1 | self_f1=0.6649 | serialize=cache | source=val_logits_3500_t048.npz
+2026-07-13 12:20:17.910 | INFO     | __main__:record:116 - tag=t048_e1 | decision=ok | self_f1=0.7312 | clean=True | serialize=cache | source=val_logits_3500_t048.npz
+2026-07-13 12:20:17.978 | INFO     | __main__:record:116 - tag=t043_e1 | decision=ok | self_f1=0.7167 | clean=True | serialize=cache | source=val_logits_3500_t043.npz
+2026-07-13 12:20:18.069 | INFO     | __main__:record:116 - tag=t043_e2 | decision=ok | self_f1=0.7543 | clean=True | serialize=cache | source=val_logits_3500_t043.npz
+2026-07-13 12:20:18.137 | INFO     | __main__:record:116 - tag=k6_e2 | decision=ok | self_f1=0.7034 | clean=True | serialize=cache | source=val_logits_3500_k6.npz
+2026-07-13 12:20:18.206 | INFO     | __main__:record:116 - tag=k6_e3 | decision=ok | self_f1=0.7415 | clean=True | serialize=cache | source=val_logits_3500_k6.npz
+2026-07-13 12:20:18.275 | INFO     | __main__:record:116 - tag=t023_e1 | decision=ok | self_f1=0.7312 | clean=True | serialize=cache | source=val_logits_3500_t023.npz
+2026-07-13 12:20:18.343 | INFO     | __main__:record:116 - tag=t023_e3 | decision=ok | self_f1=0.7084 | clean=True | serialize=cache | source=val_logits_3500_t023.npz
+2026-07-13 12:20:18.344 | SUCCESS  | __main__:main:159 - stage 1: 38 per-model files from existing caches
+2026-07-13 12:21:44.205 | INFO     | __main__:record:116 - tag=e34_a_fgm | decision=ok | self_f1=0.775 | clean=True | serialize=richargs | source=output/e34/vast_r1/e34_a_fgm/
+2026-07-13 12:23:09.144 | INFO     | __main__:record:116 - tag=e34_anchor | decision=ok | self_f1=0.7741 | clean=True | serialize=richargs | source=output/e34/vast_r1/e34_anchor/
+2026-07-13 12:24:32.447 | INFO     | __main__:record:116 - tag=e34_b_pgd | decision=ok | self_f1=0.7667 | clean=True | serialize=richargs | source=output/e34/vast_r1/e34_b_pgd/
+2026-07-13 12:25:57.028 | INFO     | __main__:record:116 - tag=e34_c_awp | decision=ok | self_f1=0.7808 | clean=True | serialize=richargs | source=output/e34/vast_r1/e34_c_awp/
+2026-07-13 12:25:57.095 | INFO     | __main__:record:116 - tag=v2_1024_full | decision=skip_no_serialize | source=output/ft_BAAI__bge-m3_v2_1024_full/
+2026-07-13 12:25:57.135 | INFO     | __main__:record:116 - tag=e18_smoke_annealsoft | decision=skip_incompat | source=output/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e18_smoke_annealsoft/
+2026-07-13 12:25:57.179 | INFO     | __main__:record:116 - tag=e18_smoke_ft0.01 | decision=skip_incompat | source=output/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e18_smoke_ft0.01/
+2026-07-13 12:26:22.102 | INFO     | __main__:record:116 - tag=router_e5s | decision=drop_lowf1 | self_f1=0.0349 | serialize=v1 | source=output/ft_intfloat__multilingual-e5-small_router_e5s/checkpoint-7000
+2026-07-13 12:26:22.205 | INFO     | __main__:record:116 - tag=member_0_t019 | decision=skip_no_serialize | source=output/optuna/build_e28_trio/model/member_0_t019/
+2026-07-13 12:26:22.207 | INFO     | __main__:record:116 - tag=member_1_t023 | decision=skip_no_serialize | source=output/optuna/build_e28_trio/model/member_1_t023/
+2026-07-13 12:26:22.241 | INFO     | __main__:record:116 - tag=member_2_t043 | decision=skip_no_serialize | source=output/optuna/build_e28_trio/model/member_2_t043/
+2026-07-13 12:26:22.286 | INFO     | __main__:record:116 - tag=e28_full_t019 | decision=skip_no_serialize | source=output/optuna/vast_r1/final_fd/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e28_full_t019/
+2026-07-13 12:29:46.631 | INFO     | __main__:record:116 - tag=ceil_explore | decision=drop_lowf1 | self_f1=0.1006 | serialize=v1 | source=output/pat/ft_BAAI__bge-m3_ceil_explore/checkpoint-4317
+2026-07-13 12:33:11.817 | INFO     | __main__:record:116 - tag=ceil_firststep | decision=drop_lowf1 | self_f1=0.1342 | serialize=v1 | source=output/pat/ft_BAAI__bge-m3_ceil_firststep/checkpoint-1347
+2026-07-13 12:36:36.405 | INFO     | __main__:record:116 - tag=ceil_striphist | decision=drop_lowf1 | self_f1=0.2672 | serialize=v1 | source=output/pat/ft_BAAI__bge-m3_ceil_striphist/checkpoint-10500
+2026-07-13 12:41:17.886 | INFO     | __main__:record:116 - tag=cont_hist0 | decision=ok | self_f1=0.7304 | clean=True | serialize=v1 | source=output/pat/ft_BAAI__bge-m3_cont_hist0/checkpoint-7000
+2026-07-13 12:44:23.273 | INFO     | __main__:record:116 - tag=cont_prune12 | decision=ok | self_f1=0.7277 | clean=True | serialize=v1 | source=output/pat/ft_BAAI__bge-m3_cont_prune12/checkpoint-3500
+2026-07-13 12:46:53.856 | INFO     | __main__:record:116 - tag=cont_spectok | decision=ok | self_f1=0.7367 | clean=True | serialize=bareact | source=output/pat/ft_BAAI__bge-m3_cont_spectok/checkpoint-7000
+2026-07-13 12:46:54.026 | INFO     | __main__:record:116 - tag=hardex | decision=error | source=output/pat/ft_BAAI__bge-m3_hardex/checkpoint-3500
+2026-07-13 12:46:54.106 | INFO     | __main__:record:116 - tag=hist0 | decision=skip_no_serialize | source=output/pat/ft_BAAI__bge-m3_hist0/
+2026-07-13 12:50:18.882 | INFO     | __main__:record:116 - tag=pair_grepread | decision=drop_lowf1 | self_f1=0.0192 | serialize=v1 | source=output/pat/ft_BAAI__bge-m3_pair_grepread/checkpoint-1916
+2026-07-13 12:50:18.999 | INFO     | __main__:record:116 - tag=prune12 | decision=skip_no_serialize | source=output/pat/ft_BAAI__bge-m3_prune12/
+2026-07-13 12:50:19.046 | INFO     | __main__:record:116 - tag=rdrop | decision=skip_no_serialize | source=output/pat/ft_BAAI__bge-m3_rdrop/
+Some weights of the model checkpoint at output/pat/ft_BAAI__bge-m3_supcon/checkpoint-10500 were not used when initializing XLMRobertaForSequenceClassification: ['supcon_proj.0.bias', 'supcon_proj.0.weight', 'supcon_proj.2.bias', 'supcon_proj.2.weight']
+- This IS expected if you are initializing XLMRobertaForSequenceClassification from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing XLMRobertaForSequenceClassification from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+2026-07-13 12:53:43.149 | INFO     | __main__:record:116 - tag=supcon | decision=ok | self_f1=0.7207 | clean=True | serialize=v1 | source=output/pat/ft_BAAI__bge-m3_supcon/checkpoint-10500
+2026-07-13 12:53:43.250 | INFO     | __main__:record:116 - tag=ft_Qwen__Qwen3-Embedding-0.6B | decision=skip_no_serialize | source=output/pat/ft_Qwen__Qwen3-Embedding-0.6B/
+2026-07-13 12:53:43.332 | INFO     | __main__:record:116 - tag=e4_ffn_r512_recover_e8b | decision=skip_incompat | source=output/pat/ft_Qwen__Qwen3-Embedding-0.6B_e4_ffn_r512_recover_e8b/
+2026-07-13 12:55:11.908 | INFO     | __main__:record:116 - tag=a24_anchor_full_scratch | decision=ok | self_f1=0.7793 | clean=True | serialize=richargs | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_a24_anchor_full_scratch/checkpoint-12468
+2026-07-13 12:55:12.007 | INFO     | __main__:record:116 - tag=a24_attn_k90_recover | decision=skip_incompat | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_a24_attn_k90_recover/
+2026-07-13 12:55:12.042 | INFO     | __main__:record:116 - tag=a24_attn_k90_scratch | decision=skip_incompat | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_a24_attn_k90_scratch/
+2026-07-13 12:55:12.093 | INFO     | __main__:record:116 - tag=a24_sal_k90_scratch | decision=skip_incompat | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_a24_sal_k90_scratch/
+2026-07-13 12:55:12.131 | INFO     | __main__:record:116 - tag=a24_smoke_attn_k90_scratch | decision=skip_incompat | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_a24_smoke_attn_k90_scratch/
+2026-07-13 12:55:12.179 | INFO     | __main__:record:116 - tag=b24_drop2_recover | decision=skip_incompat | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_b24_drop2_recover/
+2026-07-13 12:55:12.210 | INFO     | __main__:record:116 - tag=b24_drop2_scratch | decision=skip_incompat | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_b24_drop2_scratch/
+2026-07-13 12:55:12.250 | INFO     | __main__:record:116 - tag=b24_drop5_recover | decision=skip_incompat | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_b24_drop5_recover/
+2026-07-13 12:55:12.283 | INFO     | __main__:record:116 - tag=b24_drop5_scratch | decision=skip_incompat | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_b24_drop5_scratch/
+2026-07-13 12:55:12.336 | INFO     | __main__:record:116 - tag=b24_drop8_recover | decision=skip_incompat | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_b24_drop8_recover/
+2026-07-13 12:55:12.370 | INFO     | __main__:record:116 - tag=b24_drop8_scratch | decision=skip_incompat | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_b24_drop8_scratch/
+2026-07-13 12:56:40.090 | INFO     | __main__:record:116 - tag=coreset_base | decision=ok | self_f1=0.749 | clean=True | serialize=v1 | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_coreset_base/checkpoint-10500
+2026-07-13 12:58:08.359 | INFO     | __main__:record:116 - tag=coreset_rt_aum15 | decision=ok | self_f1=0.7487 | clean=True | serialize=v1 | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_coreset_rt_aum15/checkpoint-5950
+2026-07-13 12:59:36.663 | INFO     | __main__:record:116 - tag=coreset_rt_cart06 | decision=ok | self_f1=0.7349 | clean=True | serialize=v1 | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_coreset_rt_cart06/checkpoint-6580
+2026-07-13 13:01:05.100 | INFO     | __main__:record:116 - tag=coreset_rt_cl | decision=ok | self_f1=0.7461 | clean=True | serialize=v1 | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_coreset_rt_cl/checkpoint-8382
+2026-07-13 13:02:33.994 | INFO     | __main__:record:116 - tag=coreset_rt_el2n06 | decision=ok | self_f1=0.7416 | clean=True | serialize=v1 | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_coreset_rt_el2n06/checkpoint-6580
+2026-07-13 13:04:02.330 | INFO     | __main__:record:116 - tag=coreset_rt_forget | decision=ok | self_f1=0.7431 | clean=True | serialize=v1 | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_coreset_rt_forget/checkpoint-6292
+2026-07-13 13:05:30.823 | INFO     | __main__:record:116 - tag=coreset_rt_pvi06 | decision=ok | self_f1=0.751 | clean=True | serialize=v1 | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_coreset_rt_pvi06/checkpoint-6580
+2026-07-13 13:06:59.682 | INFO     | __main__:record:116 - tag=e11_granite_tapt | decision=ok | self_f1=0.7529 | clean=True | serialize=v1 | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e11_granite_tapt/checkpoint-10500
+2026-07-13 13:06:59.752 | INFO     | __main__:record:116 - tag=e12_granite_ls_s43 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e12_granite_ls_s43/
+2026-07-13 13:06:59.755 | INFO     | __main__:record:116 - tag=e12_granite_ls_s44 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e12_granite_ls_s44/
+Some weights of the model checkpoint at output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e16b_granite_ls_depth11/checkpoint-8312 were not used when initializing ModernBertForSequenceClassification: ['model.layers.0.attn_norm.weight']
+- This IS expected if you are initializing ModernBertForSequenceClassification from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing ModernBertForSequenceClassification from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+2026-07-13 13:07:12.814 | INFO     | __main__:record:116 - tag=e16b_granite_ls_depth11 | decision=drop_lowf1 | self_f1=0.0451 | serialize=richargs | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e16b_granite_ls_depth11/checkpoint-8312
+Some weights of the model checkpoint at output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e16b_granite_ls_depth14_v2/checkpoint-12468 were not used when initializing ModernBertForSequenceClassification: ['model.layers.0.attn_norm.weight']
+- This IS expected if you are initializing ModernBertForSequenceClassification from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing ModernBertForSequenceClassification from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+2026-07-13 13:07:25.849 | INFO     | __main__:record:116 - tag=e16b_granite_ls_depth14_v2 | decision=drop_lowf1 | self_f1=0.1846 | serialize=richargs | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e16b_granite_ls_depth14_v2/checkpoint-12468
+2026-07-13 13:07:26.141 | INFO     | __main__:record:116 - tag=e26s_ba_a70_T2 | decision=skip_no_serialize | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e26s_ba_a70_T2/
+2026-07-13 13:07:26.155 | INFO     | __main__:record:116 - tag=e26s_t1_a70_T2 | decision=skip_no_serialize | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e26s_t1_a70_T2/
+2026-07-13 13:07:26.209 | INFO     | __main__:record:116 - tag=e26s_t1_soft | decision=skip_no_serialize | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e26s_t1_soft/
+2026-07-13 13:07:26.240 | INFO     | __main__:record:116 - tag=e26s_t2_a70_T2 | decision=skip_no_serialize | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e26s_t2_a70_T2/
+2026-07-13 13:07:26.397 | INFO     | __main__:record:116 - tag=e30_aum06_f0 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_aum06_f0/
+2026-07-13 13:07:26.496 | INFO     | __main__:record:116 - tag=e30_aum06_f1 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_aum06_f1/
+2026-07-13 13:07:26.526 | INFO     | __main__:record:116 - tag=e30_aum06_f2 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_aum06_f2/
+2026-07-13 13:07:26.542 | INFO     | __main__:record:116 - tag=e30_aum06_f3 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_aum06_f3/
+2026-07-13 13:07:26.590 | INFO     | __main__:record:116 - tag=e30_aum06_f4 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_aum06_f4/
+2026-07-13 13:07:26.633 | INFO     | __main__:record:116 - tag=e30_e25c_f0 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_e25c_f0/
+2026-07-13 13:07:26.678 | INFO     | __main__:record:116 - tag=e30_e25c_f1 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_e25c_f1/
+2026-07-13 13:07:26.721 | INFO     | __main__:record:116 - tag=e30_e25c_f2 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_e25c_f2/
+2026-07-13 13:07:26.751 | INFO     | __main__:record:116 - tag=e30_e25c_f3 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_e25c_f3/
+2026-07-13 13:07:26.786 | INFO     | __main__:record:116 - tag=e30_e25c_f4 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_e25c_f4/
+2026-07-13 13:07:26.815 | INFO     | __main__:record:116 - tag=e30_is3_f0 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_is3_f0/
+2026-07-13 13:07:26.860 | INFO     | __main__:record:116 - tag=e30_is3_f1 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_is3_f1/
+2026-07-13 13:07:26.892 | INFO     | __main__:record:116 - tag=e30_is3_f2 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_is3_f2/
+2026-07-13 13:07:26.931 | INFO     | __main__:record:116 - tag=e30_is3_f3 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_is3_f3/
+2026-07-13 13:07:26.969 | INFO     | __main__:record:116 - tag=e30_is3_f4 | decision=skip_leak | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30_is3_f4/
+2026-07-13 13:08:51.318 | INFO     | __main__:record:116 - tag=e30s2_ba_is3 | decision=ok | self_f1=0.7722 | clean=True | serialize=richargs | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30s2_ba_is3/
+2026-07-13 13:10:16.154 | INFO     | __main__:record:116 - tag=e30s2_t1_a50 | decision=ok | self_f1=0.7726 | clean=True | serialize=richargs | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30s2_t1_a50/
+2026-07-13 13:11:40.635 | INFO     | __main__:record:116 - tag=e30s2_t1_a70 | decision=ok | self_f1=0.7695 | clean=True | serialize=richargs | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30s2_t1_a70/
+2026-07-13 13:13:03.904 | INFO     | __main__:record:116 - tag=e30s2_t1_soft | decision=ok | self_f1=0.7678 | clean=True | serialize=richargs | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30s2_t1_soft/
+2026-07-13 13:14:28.108 | INFO     | __main__:record:116 - tag=e30s_ba_is3 | decision=ok | self_f1=0.7731 | clean=True | serialize=richargs | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30s_ba_is3/
+2026-07-13 13:15:52.066 | INFO     | __main__:record:116 - tag=e30s_t1_a50 | decision=ok | self_f1=0.7739 | clean=True | serialize=richargs | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30s_t1_a50/
+2026-07-13 13:17:15.902 | INFO     | __main__:record:116 - tag=e30s_t1_a70 | decision=ok | self_f1=0.7754 | clean=True | serialize=richargs | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30s_t1_a70/
+2026-07-13 13:18:39.349 | INFO     | __main__:record:116 - tag=e30s_t1_soft | decision=ok | self_f1=0.7652 | clean=True | serialize=richargs | source=output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e30s_t1_soft/
+2026-07-13 13:18:39.857 | INFO     | __main__:record:116 - tag=granite_tapt_mlm | decision=skip_no_serialize | source=output/pat/granite_tapt_mlm/
+2026-07-13 13:18:39.885 | INFO     | __main__:record:116 - tag=granite_tapt_mlm_richargs | decision=skip_no_serialize | source=output/pat/granite_tapt_mlm_richargs/
+2026-07-13 13:18:39.913 | INFO     | __main__:record:116 - tag=qwen3_champion_pruned | decision=skip_no_serialize | source=output/pat/qwen3_champion_pruned/
+2026-07-13 13:18:39.955 | INFO     | __main__:record:116 - tag=soup_granite_ls | decision=skip_no_serialize | source=output/pat/soup_granite_ls/
+2026-07-13 13:18:40.040 | SUCCESS  | __main__:main:225 - DONE: 63 models in experiments/ensemble/logits/  (123 candidates evaluated)

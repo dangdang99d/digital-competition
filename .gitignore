@@ -21,6 +21,7 @@ ENV/
 # Environment / secrets
 .env
 *.local
+.vast
 
 # Competition data (large, provided by DACON — not committed)
 data/

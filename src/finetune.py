@@ -544,7 +544,9 @@ def make_aux_trainer(base_cls, rdrop=0.0, supcon=None, ce_mode="ce", label_smoot
 
 
 def classification_loss(logits, labels, mode="ce", focal_gamma=2.0, label_smoothing=0.1,
-                        class_weight=None, log_prior=None, la_tau=1.0):
+                        class_weight=None, log_prior=None, la_tau=1.0,
+                        gce_q=0.7, sce_alpha=0.1, sce_beta=1.0,
+                        apl_alpha=1.0, apl_beta=1.0, boot_beta=0.95, boot_mode="soft"):
     """Head classification loss for the 14-class problem, computed in fp32 from the
     head logits (N, C) + integer labels (N,). This REPLACES the model's internal CE
     (it is NOT an added aux term).
@@ -562,6 +564,20 @@ def classification_loss(logits, labels, mode="ce", focal_gamma=2.0, label_smooth
                    logits + la_tau * log_prior, where log_prior (K,) = log(count_k/N).
                    The consistent surrogate for balanced/macro error. NOT calibration:
                    priors come from the TRAIN split, inference stays raw argmax.
+
+    E35 noise-robust losses (train STANDALONE, no LS — LS is their rival; §doc). Each is
+    a faithful port of the authors' repo — diff before trusting (project invariant):
+      mode="gce"   Generalized CE (Zhang & Sabuncu NeurIPS'18): mean[(1 - p_y^q)/q],
+                   q=gce_q in (0,1]; q->0 == CE, q=1 == MAE. Confident-wrong (noisy)
+                   samples get p_y^(q-1)-shrunk gradient. (HanxunH/Active-Passive-Losses)
+      mode="sce"   Symmetric CE (Wang ICCV'19): sce_alpha*CE + sce_beta*RCE, RCE =
+                   -sum_k softmax_k * log(onehot_k) with onehot clamped to 1e-4 (== the
+                   paper's A). (YisenWang/symmetric_cross_entropy_for_noisy_labels)
+      mode="apl"   Active-Passive Loss NCE+RCE (Ma ICML'20): apl_alpha*NCE + apl_beta*RCE;
+                   NCE = normalized CE = (-sum oh*logp)/(-sum logp). (HanxunH/Active-Passive-Losses)
+      mode="boot"  Bootstrapping (Reed ICLR'15w): CE against a blended target
+                   boot_beta*onehot + (1-boot_beta)*z, z = own softmax (soft) or its
+                   argmax onehot (hard), z detached. boot_mode in {soft,hard}.
     """
     import torch.nn.functional as F
     logits = logits.float()
@@ -582,22 +598,53 @@ def classification_loss(logits, labels, mode="ce", focal_gamma=2.0, label_smooth
         assert log_prior is not None, "la needs log_prior"
         lp = log_prior.to(device=logits.device, dtype=logits.dtype)
         return F.cross_entropy(logits + la_tau * lp, labels)
+    if mode == "gce":
+        p = F.softmax(logits, dim=-1)
+        py = p.gather(1, labels.unsqueeze(1)).squeeze(1).clamp_min(1e-7)
+        return ((1.0 - py ** gce_q) / gce_q).mean()
+    if mode == "sce":
+        ce = F.cross_entropy(logits, labels)
+        p = F.softmax(logits, dim=-1).clamp(1e-7, 1.0)
+        oh = F.one_hot(labels, logits.shape[1]).float().clamp(1e-4, 1.0)
+        rce = (-(p * oh.log()).sum(dim=1)).mean()
+        return sce_alpha * ce + sce_beta * rce
+    if mode == "apl":
+        logp = F.log_softmax(logits, dim=-1)
+        oh = F.one_hot(labels, logits.shape[1]).float()
+        nce = ((-(oh * logp).sum(dim=1)) / (-(logp.sum(dim=1)))).mean()   # normalized CE
+        p = F.softmax(logits, dim=-1).clamp(1e-7, 1.0)
+        rce = (-(p * oh.clamp(1e-4, 1.0).log()).sum(dim=1)).mean()
+        return apl_alpha * nce + apl_beta * rce
+    if mode == "boot":
+        logp = F.log_softmax(logits, dim=-1)
+        oh = F.one_hot(labels, logits.shape[1]).float()
+        if boot_mode == "soft":
+            z = logp.exp().detach()
+        else:                                     # hard: onehot of the model's argmax
+            z = F.one_hot(logp.argmax(dim=1), logits.shape[1]).float()
+        target = boot_beta * oh + (1.0 - boot_beta) * z
+        return (-(target * logp).sum(dim=1)).mean()
     raise ValueError(f"unknown --loss mode: {mode!r}")
 
 
 def make_loss_trainer(base_cls, mode, focal_gamma=2.0, label_smoothing=0.1,
-                      class_weight=None, log_prior=None, la_tau=1.0):
-    """Trainer that swaps the head classification loss for a macro-F1-targeted
-    variant (focal / label-smoothing / class-weighted-CE / logit-adjusted). mode='ce'
-    is never wrapped by the caller, so the stock Trainer loss path stays byte-identical
-    to before. class_weight / log_prior are precomputed from the TRAIN split."""
+                      class_weight=None, log_prior=None, la_tau=1.0,
+                      gce_q=0.7, sce_alpha=0.1, sce_beta=1.0,
+                      apl_alpha=1.0, apl_beta=1.0, boot_beta=0.95, boot_mode="soft"):
+    """Trainer that swaps the head classification loss for a macro-F1-targeted variant
+    (focal / label-smoothing / class-weighted-CE / logit-adjusted) or an E35 noise-robust
+    loss (gce / sce / apl / boot). mode='ce' is never wrapped by the caller, so the stock
+    Trainer loss path stays byte-identical to before. class_weight / log_prior are
+    precomputed from the TRAIN split; the gce/sce/apl/boot hyperparams pass straight through."""
 
     class _LossTrainer(base_cls):
         def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
             outputs = model(**inputs)
             loss = classification_loss(outputs.logits, inputs["labels"],
                                        mode, focal_gamma, label_smoothing,
-                                       class_weight, log_prior, la_tau)
+                                       class_weight, log_prior, la_tau,
+                                       gce_q, sce_alpha, sce_beta,
+                                       apl_alpha, apl_beta, boot_beta, boot_mode)
             return (loss, outputs) if return_outputs else loss
 
     return _LossTrainer
@@ -1063,16 +1110,21 @@ def main():
                          "(alpha=2r, dropout .05, q/v projections + head). Pair with "
                          "--init_from: the base stays frozen, checkpoints hold only "
                          "adapter+head — built for shared-backbone specialist packs")
-    ap.add_argument("--loss", default="ce", choices=["ce", "focal", "ls", "wce", "la"],
+    ap.add_argument("--loss", default="ce",
+                    choices=["ce", "focal", "ls", "wce", "la", "gce", "sce", "apl", "boot"],
                     help="head classification loss — REPLACES cross-entropy (not an "
                          "aux term). ce = plain CE (default; path unchanged); focal = "
                          "multiclass focal loss (see --focal_gamma); ls = CE with "
                          "label smoothing (see --label_smoothing); wce = class-weighted "
                          "CE ('balanced' inverse-freq weights); la = logit-adjusted loss "
-                         "(train-prior log-shift, see --la_tau). ls additionally combines "
+                         "(train-prior log-shift, see --la_tau). E35 noise-robust (train "
+                         "STANDALONE, no LS): gce = Generalized CE (--gce_q); sce = "
+                         "Symmetric CE (--sce_alpha/--sce_beta); apl = NCE+RCE "
+                         "(--apl_alpha/--apl_beta); boot = bootstrapping (--boot_beta/"
+                         "--boot_mode). ls additionally combines "
                          "with --distill_from (E30 fix) and --rdrop/--supcon/--hard_boundary "
-                         "(E32 fix: LS inside the aux CE terms); focal/wce/la combine with "
-                         "none of those")
+                         "(E32 fix: LS inside the aux CE terms); focal/wce/la/gce/sce/apl/boot "
+                         "combine with none of those")
     ap.add_argument("--focal_gamma", type=float, default=2.0,
                     help="focusing parameter gamma for --loss focal")
     ap.add_argument("--label_smoothing", type=float, default=0.1,
@@ -1080,6 +1132,22 @@ def main():
     ap.add_argument("--la_tau", type=float, default=1.0,
                     help="logit-adjustment strength tau for --loss la "
                          "(logits + tau*log_prior; 1.0 = the consistent setting)")
+    # E35 noise-robust loss hyperparams (only read by the matching --loss mode)
+    ap.add_argument("--gce_q", type=float, default=0.7,
+                    help="GCE q in (0,1] for --loss gce (q->0 == CE, q=1 == MAE)")
+    ap.add_argument("--sce_alpha", type=float, default=0.1,
+                    help="SCE weight on the CE term for --loss sce")
+    ap.add_argument("--sce_beta", type=float, default=1.0,
+                    help="SCE weight on the reverse-CE (RCE) term for --loss sce")
+    ap.add_argument("--apl_alpha", type=float, default=1.0,
+                    help="APL weight on the normalized-CE (NCE) term for --loss apl")
+    ap.add_argument("--apl_beta", type=float, default=1.0,
+                    help="APL weight on the reverse-CE (RCE) term for --loss apl")
+    ap.add_argument("--boot_beta", type=float, default=0.95,
+                    help="bootstrapping label weight for --loss boot (target = "
+                         "boot_beta*onehot + (1-boot_beta)*own-pred; 0.95 soft / 0.8 hard)")
+    ap.add_argument("--boot_mode", default="soft", choices=["soft", "hard"],
+                    help="bootstrapping target: soft = own softmax, hard = own argmax onehot")
     ap.add_argument("--ltp_final_threshold", type=float, default=0.0,
                     help="E18 Learned Token Pruning (granite/ModernBERT only): "
                          "final_token_threshold for the absolute-threshold pruner "
@@ -1504,7 +1572,9 @@ def main():
                             f"max={float(log_prior.max()):.3f} tau={args.la_tau}")
         trainer_cls = make_loss_trainer(Trainer, args.loss, args.focal_gamma,
                                         args.label_smoothing, class_weight, log_prior,
-                                        args.la_tau)
+                                        args.la_tau, args.gce_q, args.sce_alpha,
+                                        args.sce_beta, args.apl_alpha, args.apl_beta,
+                                        args.boot_beta, args.boot_mode)
     if args.ltp_final_threshold > 0 and not args.ltp_hard_recover:
         assert teacher is None and not aux_on, \
             "LTP not combinable with --distill_from/--rdrop/--supcon/--hard_boundary"

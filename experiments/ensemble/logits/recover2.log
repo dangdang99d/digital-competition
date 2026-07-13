@@ -1,0 +1,5 @@
+2026-07-13 15:46:03.361 | ERROR    | __main__:main:96 - qwen3_base: CUDA out of memory. Tried to allocate 120.00 MiB. GPU 0 has a total capacity of 7.64 GiB of which 102.56 MiB is free. Including non-PyTorch memory, this process has 7.53 GiB memory in use. Of the allocated memory 5.82 GiB is allocated by PyTorch, and 1.59 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+2026-07-13 15:49:28.086 | INFO     | __main__:main:81 -   bgem3_hist0 [v1] F1=0.7301
+2026-07-13 15:52:27.290 | INFO     | __main__:main:81 -   bgem3_hist0 [richargs] F1=0.7284
+2026-07-13 15:55:27.967 | INFO     | __main__:main:81 -   bgem3_hist0 [richmeta] F1=0.7220
+2026-07-13 15:55:28.104 | SUCCESS  | __main__:main:93 - bgem3_hist0: v1 F1=0.7301 -> saved

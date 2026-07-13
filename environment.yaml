@@ -24,3 +24,6 @@ dependencies:
       - loguru==0.7.2
       - pyyaml==6.0.1
       - rich==13.7.1
+      # install optuna via pip, NOT `conda install` — conda's numpy-base 2.x overwrites
+      # pip numpy 1.26.4 and binary-breaks pandas (incident 2026-07-11)
+      - optuna==4.9.0

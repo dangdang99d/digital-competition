@@ -1,0 +1,19 @@
+2026-07-13 08:10:19.426 | INFO     | src.runlog:log_cmd:16 - CMD: python experiments/optuna/harvest_e28_logits.py
+2026-07-13 08:10:21.201 | INFO     | __main__:main:39 - held-out slice n=3500  (richargs)
+2026-07-13 08:10:21.204 | INFO     | __main__:main:54 - forward: e28_full_t017
+2026-07-13 08:11:44.619 | SUCCESS  | __main__:main:68 - e28_full_t017: single-slice F1 = 0.7745
+2026-07-13 08:11:44.619 | INFO     | __main__:main:54 - forward: e28_full_t023
+2026-07-13 08:13:05.408 | SUCCESS  | __main__:main:68 - e28_full_t023: single-slice F1 = 0.7700
+2026-07-13 08:13:05.409 | INFO     | __main__:main:54 - forward: e28_full_t043
+2026-07-13 08:14:27.664 | SUCCESS  | __main__:main:68 - e28_full_t043: single-slice F1 = 0.7706
+2026-07-13 08:14:27.665 | INFO     | __main__:main:54 - forward: e28_full_t048
+2026-07-13 08:15:48.402 | SUCCESS  | __main__:main:68 - e28_full_t048: single-slice F1 = 0.7698
+2026-07-13 08:15:48.402 | SUCCESS  | __main__:main:70 - cache -> analysis/cache/e28fd_screen_logits.npz (4 E28 members)
+
+## E28 full_data singles (3.5k held-out, raw)
+| member | F1 |
+|---|---|
+| e28_full_t017 | 0.7745 |
+| e28_full_t023 | 0.7700 |
+| e28_full_t043 | 0.7706 |
+| e28_full_t048 | 0.7698 |

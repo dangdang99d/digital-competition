@@ -1,0 +1,5 @@
+W0713 12:08:37.882000 932687 site-packages/torch/_inductor/utils.py:1250] [1/0] Not enough SMs to use max_autotune_gemm mode
+PARITY t019: 0/1000 flips = 0.0000%
+PARITY t023: 0/1000 flips = 0.0000%
+PARITY t043: 0/1000 flips = 0.0000%
+PARITY DONE

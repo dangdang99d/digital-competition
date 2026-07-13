@@ -1,8 +1,9 @@
 # Branch: stacking (E29) — learned head over the trio ensemble
 
-**STATUS: ❌ CLOSED (2026-07-12) — arm ① failed the gate on honest data.** Head CV ran as a
-local experiment (user GO); the no-calibration ruling was never needed — nothing beat uniform,
-so there is nothing to ship. User overrode the gate for ② and ④ (running 2026-07-12 late).
+**STATUS: ❌ CLOSED (2026-07-13).** Full 4-arm × 2-objective matrix run on the honest E30 OOF
+caches: **no head beats uniform averaging** (best cell +0.0007, under the +0.002 gate; the
+rest negative). The user's F1-objective diagnosis was real (≈+0.003 on arm ①) but buys parity,
+not a win. The no-calibration ruling was never needed. See FINAL VERDICT under Results.
 
 ## Objective
 
