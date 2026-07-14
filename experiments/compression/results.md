@@ -172,6 +172,21 @@ compression is the enabler. Detail per axis in the linked method files.
 | depth-16 × ffn-75 | 22→16 | 1152→864 | −0.0094 | aggressive |
 | depth-16 × ffn-50 | 22→16 | 1152→576 | −0.0124 | most aggressive |
 
+**Speed measured 2026-07-15 (3090, bs64, sdpa fp16, real 3.5k length dist; RATIO transfers
+to T4, absolute does not — all DENSE GEMMs, no sparse tensors → T4-safe):**
+
+| arm | net ΔF1 | ms/sample | speedup | proj T4 (base ~5:06) | Pareto? |
+|---|---|---|---|---|---|
+| baseline t031 | 0 | 1.839 | 1.00× | ~5:06 | — |
+| depth-20 × ffn-75 | −0.0031 | 1.553 | 1.18× | ~4:19 | dominated by d18×75 |
+| **depth-18 × ffn-75** | **−0.0017** | **1.404** | **1.31×** | **~3:54** | ✅ best acc-preserving |
+| depth-18 × ffn-50 | −0.0051 | 1.271 | 1.45× | ~3:31 | ✅ |
+| depth-16 × ffn-75 | −0.0094 | 1.256 | 1.46× | ~3:29 | dominated by d18×50 |
+| depth-16 × ffn-50 | −0.0124 | 1.142 | 1.61× | ~3:10 | ✅ most aggressive |
+
+Pareto-optimal: **d18×75 (1.31×, −0.0017)** · d18×50 (1.45×, −0.0051) · d16×50 (1.61×, −0.0124).
+**Stacks on nf4 quant** (×~1.43 from −30%): d18×75+nf4 ≈ **1.87× → T4 ~2:44** at ≈baseline acc.
+
 **Read-out:** the top cluster (**depth-18/20 × ffn-75, net −0.0017/−0.0031**) sits at ~baseline
 accuracy — moderate combined compression (~18% fewer layers + 25% fewer FFN neurons) is
 essentially free after recovery. Beyond that, accuracy degrades monotonically (d16 combos

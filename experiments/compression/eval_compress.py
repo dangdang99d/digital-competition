@@ -72,7 +72,17 @@ def main():
     kept = getattr(cfg, "kept_layer_indices", None)
     if args.kept_layers:                      # override for ckpts saved before the marker
         kept = [int(x) for x in args.kept_layers.split(",")]
-    if kept is not None:
+    factored = getattr(cfg, "factored_ffn", None)
+    if factored is not None and kept is None:
+        # FFN low-rank ckpt (--factor_ffn): rebuild FactoredLinear shells then load.
+        # (No depth-prune here → no index-wiring issue; width prune reloads via the
+        # plain path since intermediate_size is in the config.)
+        from src.factored_ffn import load_factored_model
+        model, missing, unexpected = load_factored_model(
+            args.model_dir, torch_dtype=torch.float16, attn_implementation="eager")
+        assert not unexpected, f"unexpected keys: {unexpected[:5]}"
+        print(f"factored-load: {factored}", flush=True)
+    elif kept is not None:
         # Depth-pruned ckpt: per-layer wiring (ModernBERT global/local attn, rope theta)
         # is assigned by layer INDEX at __init__, so a plain from_pretrained of the
         # shrunken config scrambles it. Rebuild at ORIGINAL depth, prune to the kept
