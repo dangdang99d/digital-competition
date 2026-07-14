@@ -39,6 +39,12 @@ baseline** — FFN low-rank is a net *cost* here, steeper than E3's no-LS E8b:
   E4's net-positive came from *recovery* turning −0.0026 → +0.0045 (a +0.007 swing); the LS
   hole starts deeper (−0.0106), so reproducing net-positive is uncertain — the recovery arm
   decides. Milder r=640/768 (−0.005/−0.003) are the safer recovery candidates.
+- **RECOVERY ARM DONE 2026-07-14 (r=512 + 2ep LS, from qwen3_ls, trainer eval on 3.5k
+  held-out): 0.76097 = net −0.0047** vs 0.76569. Recovery closed the −0.0106 zero-shot hole
+  by ~0.006 but stayed NEGATIVE — **the E4 +0.0045 gain does NOT reproduce on the LS
+  baseline** (r640/r768 arms killed early per user: won't submit qwen3). **qwen3 line CLOSED:
+  neither depth (best keep-14 net −0.002..−0.004) nor FFN low-rank (−0.0047) improves
+  qwen3_ls; the E4 gain was specific to the no-LS E8b.**
 - **KV:** mildly denoises (+0.0012 @ r512) but only saves params at r≤384, and attention is
   ~10% of qwen3 — minor tile (E45 B3 is more about q/o than KV).
 - ⚠️ **Blocker for the recovery arm:** `--factor_ffn` calibration (`build_factored_model`)
