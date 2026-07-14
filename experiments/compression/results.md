@@ -159,17 +159,27 @@ compression is the enabler. Detail per axis in the linked method files.
 
 ## Stage-B combination results (granite t031, honest 3.5k held-out, 2026-07-14)
 
-| combo | macro-F1 | net ΔF1 | flip | KL | vs single axes |
-|---|---|---|---|---|---|
-| **depth-18 × FFN-width-75%** (joint recovery) | **0.78407** | **−0.0017** ✅ | 5.4% | 0.020 | BEATS depth-18 alone (−0.0038) |
+**Full Stage-B sweep (depth × FFN-width, joint 2ep recovery) + standalone width — net ΔF1 vs 0.78578:**
 
-**Headline: the combination CLEARS the −0.002 gate** (first granite structured combo to do so),
-at ~18% fewer layers AND 25% fewer FFN neurons — and stacking width onto depth with ONE joint
-recovery FT beat depth-alone (−0.0017 vs −0.0038). Interpretation: extra structured pruning +
-joint recovery acts as regularization (or ≥noise-level improvement). Stacks on the nf4 quant
-(−30%, [[E41 qwen3 AWP ceiling]] memo) → a meaningfully faster granite at ~baseline accuracy.
-Standalone width arms (keep-75/50/25) + FFN low-rank (probe: gentle, small yield since FFN is
-18.7%) pending/parked — see [depth-pruning.md](depth-pruning.md) / [width-pruning.md](width-pruning.md).
+| arm | depth | FFN width | net ΔF1 | note |
+|---|---|---|---|---|
+| **depth-18 × ffn-75** | 22→18 | 1152→864 | **−0.0017** ✅ | **Pareto pick — clears gate, beats depth-alone (−0.0038)** |
+| depth-20 × ffn-75 | 22→20 | 1152→864 | −0.0031 | near-gate |
+| ffn-50 (width only) | 22 | 1152→576 | −0.0032 | width-only, noisy order |
+| ffn-25 (width only) | 22 | 1152→288 | −0.0047 | width-only |
+| depth-18 × ffn-50 | 22→18 | 1152→576 | −0.0051 | |
+| ffn-75 (width only) | 22 | 1152→864 | −0.0096 | ⚠️ worse than ffn-50/25 → order is NOISE (3.5k, best-epoch variance) |
+| depth-16 × ffn-75 | 22→16 | 1152→864 | −0.0094 | aggressive |
+| depth-16 × ffn-50 | 22→16 | 1152→576 | −0.0124 | most aggressive |
+
+**Read-out:** the top cluster (**depth-18/20 × ffn-75, net −0.0017/−0.0031**) sits at ~baseline
+accuracy — moderate combined compression (~18% fewer layers + 25% fewer FFN neurons) is
+essentially free after recovery. Beyond that, accuracy degrades monotonically (d16 combos
+−0.009…−0.012). Within-cluster ordering (and the standalone-width non-monotonicity: ffn-75
+−0.0096 worse than ffn-50 −0.0032) is **noise-level on the 3.5k slice** — don't over-read
+±0.003. **Winner = depth-18 × ffn-75 (−0.0017)**, stacks on the nf4 quant (−30%,
+[[E41 qwen3 AWP ceiling]]) → meaningfully faster granite at ≈baseline accuracy. FFN low-rank
+(probe: gentle, small yield, FFN=18.7%) parked. Ckpt: box `output/…_e31_t031_d18xffn75`.
 
 ## Open questions
 
