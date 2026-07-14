@@ -21,6 +21,31 @@ Index: [results.md](results.md).
 - ⚠️ ms/sample was never measured — "little acceleration" is correct: this was a **size +
   accuracy** win, not a speed one. The GEMM is smaller but the win was regularization.
 
+## qwen3_ls (E45) — SVD-degradation probe DONE 2026-07-14 (training-free)
+
+Probe on the **qwen3_ls baseline** (`analysis/palu_probe_ffn.py`, in-sample subset base
+0.8011, deltas robust). ⚠️ **The E4 +0.0045 gain does NOT reproduce training-free on the LS
+baseline** — FFN low-rank is a net *cost* here, steeper than E3's no-LS E8b:
+
+| rank | FFN param kept | FFN Δ (this, LS) | FFN Δ (E3, E8b no-LS) | KV Δ |
+|---|---|---|---|---|
+| 768 | 100% | −0.0030 | +0.0042 (denoised) | +0.0007 |
+| 640 | 83% | −0.0049 | — | +0.00001 |
+| 512 | **67%** | **−0.0106** | −0.0026 | **+0.0012** |
+| 384 | 50% | −0.0346 | −0.0135 | −0.0010 |
+| 256 | 33% | −0.101 | −0.0676 | −0.0147 |
+
+- **FFN:** no free denoising on qwen3_ls; r=512 costs −0.0106 for a 33% FFN-param cut.
+  E4's net-positive came from *recovery* turning −0.0026 → +0.0045 (a +0.007 swing); the LS
+  hole starts deeper (−0.0106), so reproducing net-positive is uncertain — the recovery arm
+  decides. Milder r=640/768 (−0.005/−0.003) are the safer recovery candidates.
+- **KV:** mildly denoises (+0.0012 @ r512) but only saves params at r≤384, and attention is
+  ~10% of qwen3 — minor tile (E45 B3 is more about q/o than KV).
+- ⚠️ **Blocker for the recovery arm:** `--factor_ffn` calibration (`build_factored_model`)
+  assumes a **full-vocab** checkpoint — it tokenizes calib texts in full space, but qwen3_ls
+  is vocab-pruned, so the calibration forward needs remap-awareness (or a full-vocab qwen3_ls
+  ckpt). Must wire remap into the factor calibration before the recovery arm can run.
+
 ## granite — expected low yield
 
 granite's FFN is only 18.7% of params and already thin (I=1152=1.5·H), and attention is
