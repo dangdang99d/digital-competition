@@ -109,6 +109,50 @@ is CHECKPOINT-specific, always re-probe the model you actually prune).
   r512, +0.0045). Note: qwen3 baseline is **9:18/30k — over the T4 budget**, which is exactly
   why compression is the *enabler* here, not just an optimization.
 
+## RESULTS SUMMARY — all methods tried (2026-07-14/15, honest 3.5k held-out)
+
+Size Δ = whole-model params (computed); ΔF1 vs each model's baseline; speed measured only
+for the arms benchmarked (3090, bs64, fp16 dense GEMMs — T4-safe, no sparse tensors; ratio
+transfers to T4). Recovery gain = net − zero-shot.
+
+**GRANITE — baseline 0.78578 (t031, 312M params; emb 64.6% untouched by compute-stack methods)**
+
+| Method | Config | Size Δ | Zero-shot ΔF1 | Recovery gain | **Net ΔF1** | Speedup |
+|---|---|---|---|---|---|---|
+| Depth prune | keep-20 (−2 L) | −3.2% | −0.0075 | **−0.004 (hurt)** | −0.0119 | n/m |
+| Depth prune | keep-18 (−4 L) | −6.4% | −0.0200 | +0.016 | −0.0038 | n/m |
+| Depth prune | keep-16 (−6 L) | −9.6% | −0.0386 | +0.030 | −0.0089 | n/m |
+| FFN width | keep-75% | −4.7% | n/m | — | −0.0096 | n/m |
+| FFN width | keep-50% | −9.4% | n/m | — | −0.0032 | n/m |
+| FFN width | keep-25% | −14.0% | n/m | — | −0.0047 | n/m |
+| FFN low-rank¹ | rank 480 | ~−1% | −0.0021 | *(not run)* | — | — |
+| FFN low-rank¹ | rank 384 | ~−3% | −0.0062 | *(not run)* | — | — |
+| **Depth×Width** | **d18 × ffn-75** | **−10.2%** | *(joint)* | *(joint)* | **−0.0017 ✅** | **1.31×** |
+| Depth×Width | d20 × ffn-75 | −7.7% | *(joint)* | *(joint)* | −0.0031 | 1.18× |
+| Depth×Width | d18 × ffn-50 | −12.9% | *(joint)* | *(joint)* | −0.0051 | 1.45× |
+| Depth×Width | d16 × ffn-75 | −13.5% | *(joint)* | *(joint)* | −0.0094 | 1.46× |
+| Depth×Width | d16 × ffn-50 | −18.6% | *(joint)* | *(joint)* | −0.0124 | 1.61× |
+| Quant nf4² | 4-bit weights | ~−¾ wt bytes | — | n/a | +0.00007 (LB) | ~1.43× |
+
+**QWEN3 — baseline 0.76569 (qwen3_ls, ~415M) — line CLOSED (compression doesn't improve it)**
+
+| Method | Config | Size Δ | Zero-shot ΔF1 | Recovery gain | **Net ΔF1** |
+|---|---|---|---|---|---|
+| Depth prune | keep-24 (−4 L) | ~−11% | −0.019 | +0.011 | −0.008 |
+| Depth prune | keep-20 (−8 L) | ~−21% | −0.119 | +0.107 | −0.011 |
+| Depth prune | keep-14 (−14, **half**) | **~−37%** | −0.37 | **+0.367** | −0.002…−0.004 |
+| FFN low-rank | r512 (33% FFN cut) | ~−14.5% | −0.0106 | +0.0059 | −0.0047 |
+
+**Winner = granite depth-18 × ffn-75: net −0.0017, 1.31× (T4 ~5:06→~3:54), stacks on nf4 →
+~1.87× (T4 ~2:44) at ≈baseline.** Full speed Pareto + interpretation in the Stage-B section below.
+
+**Patterns:** (1) **recovery is the whole game** — qwen3 keep-14 goes −0.37 zero-shot → −0.003
+recovered (+0.367); (2) recovery is **net-negative for mild cuts** (granite keep-20: −0.0075→
+−0.0119, warm-start tax > healing); (3) within-cluster + standalone-width ordering is **3.5k
+noise** (±0.003); (4) qwen3 doesn't improve under compression (E4's +0.0045 was E8b-specific).
+**¹** granite FFN low-rank also matched `attn.Wo` (66-module quirk), probe-only, low yield.
+**²** nf4 = other-session number, measured on LB not the 3.5k slice.
+
 ## Method-family index
 
 | # | Family | File | Status (granite unless noted) | Size↓ | Speed↑ |
@@ -116,7 +160,7 @@ is CHECKPOINT-specific, always re-probe the model you actually prune).
 | 1 | Quantization (fp16 / int8) | [quantization.md](quantization.md) | fp16 ✅ IN USE · int8/TensorRT 🏃 separate session | ✅ | ✅ |
 | 2 | Vocab pruning | [vocab-pruning.md](vocab-pruning.md) | ✅ IN USE — biggest size lever (emb 64.6%) | ✅✅ | — |
 | 3 | Depth pruning | [depth-pruning.md](depth-pruning.md) | ✅ DONE both: granite best keep-18 net **−0.0038** (~18% layers), qwen3 best keep-14 net **−0.002..−0.004** (≈E16, ~free — NOT a gain). Neither clears −0.002 gate cleanly; recovery hurts mild cuts; ⚠️ ModernBERT reload trap fixed | ✅ sm | ✅ modest |
-| 4 | Width pruning | [width-pruning.md](width-pruning.md) | 🔲 unexplored — box-safe probes planned | ✅ sm | ✅ |
+| 4 | Width pruning | [width-pruning.md](width-pruning.md) | ✅ DONE (granite FFN-neuron): keep-75/50/25 net −0.003..−0.010 (order=noise); modest standalone, strong STACKED w/ depth (d18×ffn-75 = −0.0017, 1.31×). Head-prune not done (needs ModernBERT adapt) | ✅ sm | ✅ (dense GEMM) |
 | 5 | Low-rank factorization | [low-rank-factorization.md](low-rank-factorization.md) | 🔲 granite (low yield); qwen3 ✅ +0.0045 (E4) | ✅ sm | ~ marg |
 | 6 | Knowledge distillation | [knowledge-distillation.md](knowledge-distillation.md) | ❌ CLOSED — trio≠distillable (E26-1B/E30) | ✅✅✅ | ✅✅✅ |
 | 7 | Token reduction (LTP) | [token-pruning.md](token-pruning.md) | 🕐 DEFERRED — awaits re-spec | — | ✅✅ |
