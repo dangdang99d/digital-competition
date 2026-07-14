@@ -4,7 +4,7 @@
 - **granite** (`ibm-granite/granite-embedding-311m-multilingual-r2`, ModernBERT-class:
   22 layers, H=768, GeGLU I=1152, vocab 262,152) — the deployed primary. **E31**.
 - **qwen3** (`Qwen/Qwen3-Embedding-0.6B`, decoder-style: 28 layers, H≈1024, FFN 44% of
-  params, vocab 151k) — **E40** (user 2026-07-14, "showing promising results, explore it").
+  params, vocab 151k) — **E45** (user 2026-07-14, "showing promising results, explore it").
   Higher accuracy at E8 (qwen3_ls LB **0.77921** > granite_ls 0.77738) but ~un-shippable
   on speed (9:18/30k on 3090 → over budget on slower DACON HW). Compression is the
   *enabler* here, not just a novelty layer — and it's the model where structured
@@ -35,7 +35,7 @@ size gains beyond vocab-prune+fp16 are capped; **stack methods matter for speed,
 
 ## Method-family status board (granite track — E31)
 
-*qwen3 track = E40 (own section below); this board is granite unless noted.*
+*qwen3 track = E45 (own section below); this board is granite unless noted.*
 
 | # | Family | Method(s) | Status on granite | Size ↓ | Speed ↑ | Evidence / next action |
 |---|---|---|---|---|---|---|
@@ -93,7 +93,7 @@ parallel instead of committing to one ordered stack. Full spec: EXPERIMENTS.md �
 - Cost: recovery FT ≈ 4–5 h/3090; Stage A ≈ 5–7 trainings + 2 free probes; Stage B ≤ 8
   trainings → ~2 fleet waves.
 
-## qwen3 track — E40 (user 2026-07-14: "showing promising results, explore it")
+## qwen3 track — E45 (user 2026-07-14: "showing promising results, explore it")
 
 **Why qwen3 is the higher-headroom compression target — the mass is IN the compute stack**
 (inverse of granite). qwen3-0.6B param split: **FFN 44.4%** (gate/up/down) · **attn 29.6%**
@@ -109,11 +109,11 @@ is a zero-FLOP embedding lookup.
 | Depth prune (E16) | 28→14 (ShortGPT/BI, kept `[0-7,9-11,19,21,27]`) + recovery = **0.7638** vs 0.7643 | −0.0005 (~FREE) | **~2×** (half depth) | `--keep_layers`; packaged E16z |
 
 E4's own note says it *stacks with* E16 depth-prune — this has never been tested. **That
-untested product is E40's core bet:** depth-14 (~2×) × FFN-factor r512 (denoise + ~15%) →
+untested product is E45's core bet:** depth-14 (~2×) × FFN-factor r512 (denoise + ~15%) →
 a qwen3 that fits the budget AND keeps its accuracy edge. If it lands, the model that beat
 granite at E8 but was too slow to ship becomes shippable.
 
-**E40 = the qwen3 mirror of E31's search** (structured only; unstructured excluded, no HW
+**E45 = the qwen3 mirror of E31's search** (structured only; unstructured excluded, no HW
 kernels). Same 3-stage design; the axis screens carry priors, so the search is faster:
 - **B1 depth** — reuse the E16 BI selection (`[0-7,9-11,19,21,27]`) as the keep-14 anchor;
   add keep-18 / keep-10 rungs to map the accuracy/speed curve past the one proven point.
@@ -135,7 +135,7 @@ member (previously blocked purely by qwen3's runtime).
 **Priors that make this cheaper than E31:** BI selection + factored-FFN code + SVD-LLM
 whitening all already exist and are validated on qwen3; the recovery-FT harness is the
 same finetune.py path. Main new code = attention SVD factor modules (B3) mirroring
-`factored_ffn.py`. Full spec: EXPERIMENTS.md §E40.
+`factored_ffn.py`. Full spec: EXPERIMENTS.md §E45.
 
 ## Open questions
 
