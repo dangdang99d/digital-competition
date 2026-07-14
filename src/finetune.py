@@ -30,7 +30,7 @@ from src.data import (ACTION_GROUPS, ALL_CLASSES, CLASS_TO_ID, GROUP_ID,
 
 
 def build_dataset(tok, texts, labels, max_len, desc="tokenizing", teacher=None,
-                  weights=None):
+                  weights=None, remap=None):
     """Tokenize once; return a torch Dataset yielding input_ids/attention_mask/labels.
 
     Tokenizes in chunks with a tqdm bar (works in a terminal and prints periodic
@@ -46,6 +46,8 @@ def build_dataset(tok, texts, labels, max_len, desc="tokenizing", teacher=None,
     for i in tqdm(range(0, len(texts), chunk), desc=desc, unit="k-rows",
                   mininterval=5.0):  # mininterval keeps sbatch logs sparse
         e = tok(texts[i:i + chunk], truncation=True, max_length=max_len, padding=False)
+        if remap is not None:  # vocab-pruned ckpt (--remap_tokens): full ids -> pruned rows
+            e["input_ids"] = [remap[np.asarray(ids)].tolist() for ids in e["input_ids"]]
         enc["input_ids"].extend(e["input_ids"])
         enc["attention_mask"].extend(e["attention_mask"])
 
@@ -269,6 +271,106 @@ def reinit_top_layers(model, n):
     logger.info(f"re-initialized top {n} encoder layers")
 
 
+def install_drophead(model, p):
+    """E47: DropHead (Zhou et al. 2020, arXiv 2004.13342) — structured attention-head
+    dropout. During TRAINING, each attention head's output is zeroed with prob p and
+    the kept heads are rescaled by nH/kept (per sample); eval is untouched. Applied by
+    masking the INPUT of every attention out-projection (ModernBERT `attn.Wo`, causal
+    `self_attn.o_proj`), whose last dim is the head-concatenated context. Hook-based:
+    module tree and state_dict are unchanged, so save/reload/harvest stay compatible.
+    Constant p (the paper's scheduled ramp is not implemented — documented deviation)."""
+    nH = model.config.num_attention_heads
+    projs = [mod for name, mod in model.named_modules()
+             if name.endswith((".attn.Wo", ".self_attn.o_proj"))]
+    assert projs, "install_drophead: no attention out-projections found"
+
+    def pre_hook(module, inputs):
+        if not module.training:
+            return None
+        x = inputs[0]
+        dh = x.shape[-1] // nH
+        xv = x.view(*x.shape[:-1], nH, dh)
+        lead = (x.shape[0], 1) if x.dim() == 3 else (1,)   # padded (B,L,H) vs unpadded (T,H)
+        keep = (torch.rand(*lead, nH, 1, device=x.device) >= p)
+        k = keep.sum(-2, keepdim=True)
+        keep = torch.where(k == 0, torch.ones_like(keep), keep)   # never drop ALL heads
+        k = keep.sum(-2, keepdim=True).to(x.dtype)
+        return ((xv * keep.to(x.dtype) * (nH / k)).reshape(x.shape),)
+
+    for m in projs:
+        m.register_forward_pre_hook(pre_hook)
+    logger.info(f"DropHead installed: p={p} on {len(projs)} attention out-projections "
+                f"({nH} heads; train-mode only)")
+
+
+def install_msd(model, k, p):
+    """E47: multi-sample dropout head (Inoue 2019, arXiv 1905.09788) — during training
+    the final classifier runs k times with independent dropout masks on its input and
+    the LOGITS are averaged (documented deviation: the paper averages the k losses;
+    logit-mean is used so it composes with every --loss mode unchanged). Eval = one
+    clean pass. Monkeypatched forward on the existing head module: state_dict unchanged."""
+    import torch.nn.functional as F
+    head = getattr(model, "classifier", None)
+    if head is None:
+        head = getattr(model, "score", None)
+    assert head is not None, "install_msd: no classifier/score head found"
+    orig = head.forward
+
+    def msd_forward(h):
+        if head.training:
+            return torch.stack([orig(F.dropout(h, p, training=True))
+                                for _ in range(k)]).mean(0)
+        return orig(h)
+
+    head.forward = msd_forward
+    logger.info(f"multi-sample dropout head: k={k} p={p} (train-mode only, logit-mean)")
+
+
+def apply_child_tuning(model, train_ds, collator, device, child_p,
+                       n_batches=64, bs=16, seed=42):
+    """E47: Child-Tuning-D (Xu et al., EMNLP 2021, arXiv 2109.05687) — one Fisher pass
+    (n_batches of the train set, the model's own stock loss) scores every ENCODER
+    parameter by accumulated squared gradient; the top child_p fraction (global
+    threshold, estimated on a 2M-element subsample — documented deviation from an
+    exact quantile) stays trainable, the rest get their gradients zeroed via
+    per-tensor hooks for the whole run (weights frozen at init values). Head params
+    are always fully trainable. Composes with AWP (masks apply to every backward)."""
+    from torch.utils.data import DataLoader
+    model.to(device).train()
+    dl = DataLoader(train_ds, batch_size=bs, shuffle=True, collate_fn=collator,
+                    generator=torch.Generator().manual_seed(seed))
+    head_prefixes = tuple(k for k in ("classifier", "score", "head") if hasattr(model, k))
+    fisher = {n: torch.zeros_like(p) for n, p in model.named_parameters()
+              if p.requires_grad and not n.startswith(head_prefixes)}
+    name2p = dict(model.named_parameters())
+    seen = 0
+    for batch in dl:
+        if seen >= n_batches:
+            break
+        batch = {kk: vv.to(device) for kk, vv in batch.items()}
+        model.zero_grad(set_to_none=True)
+        model(**batch).loss.backward()
+        for n in fisher:
+            if name2p[n].grad is not None:
+                fisher[n] += name2p[n].grad.detach() ** 2
+        seen += 1
+    model.zero_grad(set_to_none=True)
+    flat = torch.cat([f.flatten() for f in fisher.values()])
+    sub = flat[torch.randint(flat.numel(), (2_000_000,), device=flat.device)]
+    thr = torch.quantile(sub.float(), 1.0 - child_p)
+    kept = tot = 0
+    for n, p in model.named_parameters():
+        if n not in fisher:
+            continue
+        m = (fisher[n] > thr).to(p.dtype)
+        kept += int(m.sum()); tot += m.numel()
+        p.register_hook(lambda g, _m=m: g * _m)
+        del fisher[n]
+    logger.info(f"child-tuning-D: kept {kept / tot:.1%} of encoder params trainable "
+                f"(target {child_p:.0%}, fisher batches={seen})")
+    model.eval()
+
+
 def prune_layers(model, keep):
     """Structured depth pruning. `keep` is either:
       - an int N: keep N evenly-spaced encoder layers (always incl. first and last), or
@@ -292,6 +394,13 @@ def prune_layers(model, keep):
     setattr(parent, list_name.rsplit(".", 1)[1],
             torch.nn.ModuleList([layers[i] for i in idx]))
     model.config.num_hidden_layers = len(idx)
+    # Record ORIGINAL indices + depth: index-dependent per-layer wiring (ModernBERT's
+    # alternating global/local attention + rope theta are assigned by layer_id % n at
+    # __init__) is preserved in-process but SCRAMBLES on a plain from_pretrained reload
+    # unless the kept set happens to preserve index%n. Loaders must rebuild the full-depth
+    # model, prune to kept_layer_indices, then load weights (see eval_compress.py).
+    model.config.kept_layer_indices = idx
+    model.config.pruned_from_depth = depth
     logger.info(f"pruned encoder depth {depth} -> {len(idx)} (kept layers {idx})")
 
 
@@ -546,7 +655,8 @@ def make_aux_trainer(base_cls, rdrop=0.0, supcon=None, ce_mode="ce", label_smoot
 def classification_loss(logits, labels, mode="ce", focal_gamma=2.0, label_smoothing=0.1,
                         class_weight=None, log_prior=None, la_tau=1.0,
                         gce_q=0.7, sce_alpha=0.1, sce_beta=1.0,
-                        apl_alpha=1.0, apl_beta=1.0, boot_beta=0.95, boot_mode="soft"):
+                        apl_alpha=1.0, apl_beta=1.0, boot_beta=0.95, boot_mode="soft",
+                        ls_matrix=None):
     """Head classification loss for the 14-class problem, computed in fp32 from the
     head logits (N, C) + integer labels (N,). This REPLACES the model's internal CE
     (it is NOT an added aux term).
@@ -585,6 +695,16 @@ def classification_loss(logits, labels, mode="ce", focal_gamma=2.0, label_smooth
         return F.cross_entropy(logits, labels)
     if mode == "ls":
         return F.cross_entropy(logits, labels, label_smoothing=label_smoothing)
+    if mode == "lsmat":
+        # E47 structured/generalized label smoothing: T (K,K), row y = the full soft
+        # target for true class y. Covers uniform NEGATIVE smoothing (Wei et al. ICML'22,
+        # 2106.04149; torch's label_smoothing rejects eps<0) and grouped +/- smoothing
+        # (in-confusion-group positive, out-group negative). Rows sum to 1 (asserted at
+        # load); entries may be negative — CE against soft targets is well-defined.
+        assert ls_matrix is not None, "--loss lsmat needs --ls_matrix"
+        T = ls_matrix.to(device=logits.device, dtype=logits.dtype)
+        logp = F.log_softmax(logits, dim=-1)
+        return (-(T[labels] * logp).sum(dim=1)).mean()
     if mode == "focal":
         logp = F.log_softmax(logits, dim=-1)
         logpt = logp.gather(1, labels.unsqueeze(1)).squeeze(1)   # log p_t
@@ -630,7 +750,8 @@ def classification_loss(logits, labels, mode="ce", focal_gamma=2.0, label_smooth
 def make_loss_trainer(base_cls, mode, focal_gamma=2.0, label_smoothing=0.1,
                       class_weight=None, log_prior=None, la_tau=1.0,
                       gce_q=0.7, sce_alpha=0.1, sce_beta=1.0,
-                      apl_alpha=1.0, apl_beta=1.0, boot_beta=0.95, boot_mode="soft"):
+                      apl_alpha=1.0, apl_beta=1.0, boot_beta=0.95, boot_mode="soft",
+                      ls_matrix=None):
     """Trainer that swaps the head classification loss for a macro-F1-targeted variant
     (focal / label-smoothing / class-weighted-CE / logit-adjusted) or an E35 noise-robust
     loss (gce / sce / apl / boot). mode='ce' is never wrapped by the caller, so the stock
@@ -644,7 +765,8 @@ def make_loss_trainer(base_cls, mode, focal_gamma=2.0, label_smoothing=0.1,
                                        mode, focal_gamma, label_smoothing,
                                        class_weight, log_prior, la_tau,
                                        gce_q, sce_alpha, sce_beta,
-                                       apl_alpha, apl_beta, boot_beta, boot_mode)
+                                       apl_alpha, apl_beta, boot_beta, boot_mode,
+                                       ls_matrix)
             return (loss, outputs) if return_outputs else loss
 
     return _LossTrainer
@@ -762,6 +884,35 @@ def make_pgd_trainer(base_cls, eps, alpha, k):
     return _PGDTrainer
 
 
+def awp_perturb(model, adv_lr, gamma):
+    """AWP weight perturbation (E34-C / Wu et al. NeurIPS'20): after the clean backward
+    (grads must be populated), step every trainable `*weight*` tensor toward its gradient
+    by adv_lr*||w||*g/(||g||+1e-6), then clamp elementwise into the box w0 ± gamma*|w0|.
+    Returns a `backup` dict {name: original tensor} to hand to awp_restore. Shared by
+    make_awp_trainer (HF Trainer path) and experiments/noise-robust/elr.py (custom loop)."""
+    backup = {}
+    for n, p in model.named_parameters():
+        if not p.requires_grad or p.grad is None or "weight" not in n:
+            continue
+        g = p.grad.detach()
+        gnorm = g.norm()
+        if gnorm == 0 or torch.isnan(gnorm):
+            continue
+        backup[n] = p.data.clone()
+        wnorm = backup[n].norm()
+        p.data.add_(g, alpha=float(adv_lr) * float(wnorm) / (float(gnorm) + 1e-6))
+        box = gamma * backup[n].abs()        # elementwise |delta_i| <= gamma*|w0_i|
+        p.data.copy_(torch.min(torch.max(p.data, backup[n] - box), backup[n] + box))
+    return backup
+
+
+def awp_restore(model, backup):
+    """Restore the tensors perturbed by awp_perturb (exact copy-back)."""
+    for n, p in model.named_parameters():
+        if n in backup:
+            p.data.copy_(backup[n])
+
+
 def make_awp_trainer(base_cls, gamma, adv_lr, start_epoch):
     """E34-C: AWP — Adversarial Weight Perturbation (Wu et al., NeurIPS'20) — after
     the clean backward, step every trainable `*weight*` tensor toward its gradient by
@@ -783,20 +934,7 @@ def make_awp_trainer(base_cls, gamma, adv_lr, start_epoch):
             if (self.state.epoch or 0.0) < start_epoch:
                 return clean_loss
             unwrapped = self.accelerator.unwrap_model(model)
-            backup = {}
-            for n, p in unwrapped.named_parameters():
-                if not p.requires_grad or p.grad is None or "weight" not in n:
-                    continue
-                g = p.grad.detach()
-                gnorm = g.norm()
-                if gnorm == 0 or torch.isnan(gnorm):
-                    continue
-                backup[n] = p.data.clone()
-                wnorm = backup[n].norm()
-                p.data.add_(g, alpha=float(adv_lr) * float(wnorm) / (float(gnorm) + 1e-6))
-                box = gamma * backup[n].abs()    # elementwise |delta_i| <= gamma*|w0_i|
-                p.data.copy_(torch.min(torch.max(p.data, backup[n] - box),
-                                       backup[n] + box))
+            backup = awp_perturb(unwrapped, adv_lr, gamma)
             if not backup:
                 if not getattr(self, "_awp_warned", False):
                     self._awp_warned = True
@@ -812,9 +950,7 @@ def make_awp_trainer(base_cls, gamma, adv_lr, start_epoch):
             if not self.model_accepts_loss_kwargs and self.compute_loss_func is None:
                 adv_loss = adv_loss / self.args.gradient_accumulation_steps
             self.accelerator.backward(adv_loss)
-            for n, p in unwrapped.named_parameters():
-                if n in backup:
-                    p.data.copy_(backup[n])      # restore after the adv backward
+            awp_restore(unwrapped, backup)       # restore after the adv backward
             return clean_loss
 
     return _AWPTrainer
@@ -896,8 +1032,8 @@ def main():
     ap.add_argument("--max_len", type=int, default=512)
     ap.add_argument("--epochs", type=float, default=3.0)
     ap.add_argument("--lr", type=float, default=2e-5)          # full-FT needs a small LR
-    ap.add_argument("--batch_size", type=int, default=4)       # full-FT is VRAM-heavy (~11GB GPU)
-    ap.add_argument("--grad_accum", type=int, default=4)       # effective batch 16
+    ap.add_argument("--batch_size", type=int, default=16)      # granite 312M@512 ~7GB/24GB — real bs16 fits, no accum needed (E19)
+    ap.add_argument("--grad_accum", type=int, default=1)       # effective batch 16 (bs16×1); accumulation only if a bigger backbone needs it
     ap.add_argument("--grad_checkpointing", default="auto", choices=["auto", "on", "off"],
                     help="recompute activations in backward to save VRAM (~30-40%% slower). "
                          "auto = on only for large (>400M) or long-seq (>512) configs, off "
@@ -998,6 +1134,11 @@ def main():
     ap.add_argument("--keep_layers", type=int, default=0,
                     help="depth-prune the encoder to N evenly-spaced layers before training "
                          "(0 = off). Pair with --init_from for prune-then-recover")
+    ap.add_argument("--remap_tokens", default="",
+                    help="remap.npy of a vocab-pruned checkpoint (full-vocab tokenizer id -> "
+                         "pruned embedding row). Requires --init_from that pruned ckpt. "
+                         "Applied at tokenize time; collator pad id switched to pruned space. "
+                         "Enables recovery-FT directly on a pruned submission model (E45)")
     ap.add_argument("--keep_layer_idx", default="",
                     help="depth-prune to an EXPLICIT comma-separated set of layer indices "
                          "(e.g. ShortGPT Block-Influence pick '0,1,2,...'). Overrides "
@@ -1419,6 +1560,7 @@ def main():
         logger.info(f"distilling from {args.distill_from} "
                     f"(alpha={args.distill_alpha}, T={args.distill_T})")
     if args.reduced_ids:                       # E24 method-A: PRE-tokenized reduced inputs (default off)
+        assert not args.remap_tokens, "--remap_tokens only supported on the plain dataset path"
         assert not (args.hist_dropout or args.distill_from or weights_tr is not None), \
             "--reduced_ids uses the plain static path only (no hist_dropout/distill/weights)"
         _rd = np.load(args.reduced_ids)
@@ -1432,16 +1574,30 @@ def main():
                     f"(full-input path bypassed; split/recipe unchanged)")
     elif args.hist_dropout:
         assert not args.distill_from, "--hist_dropout + --distill_from not supported together"
+        assert not args.remap_tokens, "--remap_tokens only supported on the plain dataset path"
         logger.info(f"history dropout p={args.hist_dropout} (fresh draw per epoch)")
         train_ds = build_dynamic_dataset(tok, [samples[i] for i in tr], y_ids[tr],
                                          args.max_len, max_hist, args.hist_dropout, init_seed,
                                          variant=args.serialize)
         val_ds = build_dataset(tok, [texts[i] for i in va], y_ids[va], args.max_len)
     else:
+        remap_arr = None
+        if args.remap_tokens:
+            assert args.init_from, "--remap_tokens requires --init_from (the vocab-pruned ckpt)"
+            remap_arr = np.load(args.remap_tokens)
+            logger.info(f"--remap_tokens {args.remap_tokens}: tokenizing in pruned-vocab space")
         train_ds = build_dataset(tok, [texts[i] for i in tr], y_ids[tr], args.max_len,
                                  teacher=teacher[tr] if teacher is not None else None,
-                                 weights=weights_tr)
-        val_ds = build_dataset(tok, [texts[i] for i in va], y_ids[va], args.max_len)
+                                 weights=weights_tr, remap=remap_arr)
+        val_ds = build_dataset(tok, [texts[i] for i in va], y_ids[va], args.max_len,
+                               remap=remap_arr)
+        if remap_arr is not None:
+            # collator must pad in PRUNED space, and qwen3 last-non-pad pooling reads
+            # config.pad_token_id — force BOTH to remap[pad]. (L1342 sets config.pad to the
+            # full-space tok.pad at model load; that would make pooling read garbage — E3 lesson)
+            tok.pad_token_id = int(remap_arr[tok.pad_token_id])
+            model.config.pad_token_id = tok.pad_token_id
+            logger.info(f"remap: pad_token_id -> pruned space {tok.pad_token_id}")
     collator = DataCollatorWithPadding(tok)
     if teacher is not None or weights_tr is not None:
         collator = ExtrasCollator(collator)
