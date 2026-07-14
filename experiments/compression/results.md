@@ -115,7 +115,7 @@ is CHECKPOINT-specific, always re-probe the model you actually prune).
 |---|---|---|---|---|---|
 | 1 | Quantization (fp16 / int8) | [quantization.md](quantization.md) | fp16 ✅ IN USE · int8/TensorRT 🏃 separate session | ✅ | ✅ |
 | 2 | Vocab pruning | [vocab-pruning.md](vocab-pruning.md) | ✅ IN USE — biggest size lever (emb 64.6%) | ✅✅ | — |
-| 3 | Depth pruning | [depth-pruning.md](depth-pruning.md) | 🏃 t031 2ep-recovery best = keep-18 net **−0.0051** (gate −0.002 missed; recovery HURTS mild cuts — warm-start trap; ⚠️ ModernBERT index-wired attn reload trap found+fixed); qwen3_ls recovery arms running (keep-24/20/14) | ✅ sm | ✅ modest |
+| 3 | Depth pruning | [depth-pruning.md](depth-pruning.md) | ✅ DONE both: granite best keep-18 net **−0.0038** (~18% layers), qwen3 best keep-14 net **−0.002..−0.004** (≈E16, ~free — NOT a gain). Neither clears −0.002 gate cleanly; recovery hurts mild cuts; ⚠️ ModernBERT reload trap fixed | ✅ sm | ✅ modest |
 | 4 | Width pruning | [width-pruning.md](width-pruning.md) | 🔲 unexplored — box-safe probes planned | ✅ sm | ✅ |
 | 5 | Low-rank factorization | [low-rank-factorization.md](low-rank-factorization.md) | 🔲 granite (low yield); qwen3 ✅ +0.0045 (E4) | ✅ sm | ~ marg |
 | 6 | Knowledge distillation | [knowledge-distillation.md](knowledge-distillation.md) | ❌ CLOSED — trio≠distillable (E26-1B/E30) | ✅✅✅ | ✅✅✅ |

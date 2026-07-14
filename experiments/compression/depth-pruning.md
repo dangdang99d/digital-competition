@@ -136,12 +136,26 @@ layers (~5:06 → ~4:10), NOT qwen3's 2×.
 | 14 (own) | +{9,20} | −0.367 | 50.6% | 1.299 |
 | 14 (E16 set) | drop `{8,12-18,20,22-26}` | −0.404 | 53.5% | 1.056 |
 
-Zero-shot knee after keep-24. BUT per lesson 2 above, E16 proved recovery closes even the
-keep-14 hole (0.7638 final on E8b lineage, ~2× speed) — so recovery arms decide, not this
-curve. Recovery on the vocab-pruned qwen3_ls ckpt = `--init_from <zip model> --remap_tokens
-<remap.npy> --keep_layer_idx ...` (hook added to finetune.py 2026-07-14). Priority arms:
-keep-24 (cheap win?) · keep-20 · keep-14own (re-test E16's full heal under the LS recipe).
-Stacks (untested) with FFN low-rank → [low-rank-factorization.md](low-rank-factorization.md).
+Zero-shot knee after keep-24 — but recovery decides, not this curve.
+
+**Recovery arms DONE (2ep lr1e-5 LS, from qwen3_ls via `--remap_tokens`; best epoch):**
+
+| arm | zero-shot | recovered (harness) | recovered (trainer) | net vs 0.76569 |
+|---|---|---|---|---|
+| keep-24 | −0.019 | 0.7573 | 0.7576 | **−0.008** |
+| keep-20 | −0.119 | 0.7532 | 0.7599 | −0.010…−0.013 |
+| keep-14 | −0.367 | 0.7615 | 0.7639 | **−0.002…−0.004** ← best |
+
+**qwen3 depth verdict:** recovery heals the −0.37 keep-14 hole back to ~0.762–0.764 —
+**reproducing E16 (0.7638) almost exactly**, so depth-prune+recovery is ~free/flat, NOT the
+gain the user recalled (that was **E4 FFN low-rank**, +0.0045 — see
+[low-rank-factorization.md](low-rank-factorization.md)). All arms land slightly BELOW the LS
+baseline (best keep-14 net −0.002…−0.004). ⚠️ **Retracted:** an earlier "more-pruning-recovers-
+better inversion" from trainer metrics did NOT survive the harness re-eval (keep-20 is the
+lowest, non-monotonic) — noise + selection variance, not a regularization signal.
+⚠️ trainer-vs-harness gap up to 0.007 on keep-20 (reconstruct-load vs plain load + a
+pad double-remap quirk on vocab-pruned recovered ckpts) — verdict is robust to it, but clean
+qwen3 harness numbers want an eval-pad fix. Stacks (untested) with FFN low-rank → E45.
 
 ## Next
 - **granite recovery-FT** of keep-20/18/16 vs a from-scratch anchor (E24 warm-start trap) on

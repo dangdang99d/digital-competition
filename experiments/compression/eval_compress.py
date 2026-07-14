@@ -120,9 +120,13 @@ def main():
     remap = None
     if args.remap:
         remap = torch.from_numpy(np.load(args.remap)).long()
-        pad_full = tok.pad_token_id
-        assert int(remap[pad_full]) == model.config.pad_token_id, \
-            "remap[pad] != config.pad_token_id — pooling would read garbage (E3 lesson)"
+        pad_pruned = int(remap[tok.pad_token_id])          # pad in remapped-input space
+        if model.config.pad_token_id != pad_pruned:
+            # recovery ckpts saved a stale full-space pad; qwen3 last-non-pad pooling must
+            # use the PRUNED-space pad the model trained with (E3 lesson). Force it.
+            print(f"override config.pad_token_id {model.config.pad_token_id} -> {pad_pruned}",
+                  flush=True)
+            model.config.pad_token_id = pad_pruned
 
     outs = []
     with torch.no_grad():
