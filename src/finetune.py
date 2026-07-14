@@ -271,36 +271,158 @@ def reinit_top_layers(model, n):
     logger.info(f"re-initialized top {n} encoder layers")
 
 
-def install_drophead(model, p):
-    """E47: DropHead (Zhou et al. 2020, arXiv 2004.13342) — structured attention-head
-    dropout. During TRAINING, each attention head's output is zeroed with prob p and
-    the kept heads are rescaled by nH/kept (per sample); eval is untouched. Applied by
-    masking the INPUT of every attention out-projection (ModernBERT `attn.Wo`, causal
-    `self_attn.o_proj`), whose last dim is the head-concatenated context. Hook-based:
-    module tree and state_dict are unchanged, so save/reload/harvest stay compatible.
-    Constant p (the paper's scheduled ramp is not implemented — documented deviation)."""
+def _drophead_keep(x, nH, pp, granularity, device):
+    """Sample a head-keep mask for out-proj input x, never dropping ALL heads.
+      sequence — one mask per sequence: padded (B,L,H)→lead (B,1) broadcast over L;
+                 unpadded (T,H)→lead (1,) (batch-global; sequence boundaries unknown w/o cu_seqlens)
+      token    — independent per token: padded→(B,L); unpadded→(T,)"""
+    if x.dim() == 3:                                   # padded (B, L, H)
+        lead = (x.shape[0], 1) if granularity == "sequence" else (x.shape[0], x.shape[1])
+    else:                                              # unpadded (T, H)
+        lead = (1,) if granularity == "sequence" else (x.shape[0],)
+    keep = (torch.rand(*lead, nH, 1, device=device) >= pp)
+    k = keep.sum(-2, keepdim=True)
+    keep = torch.where(k == 0, torch.ones_like(keep), keep)
+    return keep
+
+
+def install_drophead(model, p, state=None, granularity="sequence",
+                     correlated=False, layer_ramp=False):
+    """E47/E49: DropHead (Zhou et al. 2020, arXiv 2004.13342) — structured attention-head
+    dropout. Each attention head's output is zeroed with prob `state['p']` and the kept
+    heads rescaled by nH/kept. Applied by masking the INPUT of every attention out-projection
+    (ModernBERT `attn.Wo`, causal `self_attn.o_proj`), whose last dim is head-concatenated
+    context. Hook-based: module tree / state_dict unchanged → save/reload/harvest compatible.
+
+    `state` = shared mutable {'p','infer'} (E49): the schedule callback mutates 'p';
+    'infer'=True forces the mask active at EVAL too (MC-DropHead). Default state → mask fires
+    only in train mode (E47 exact).
+
+    E49 variant axes:
+      granularity {sequence,token} — drop a head for the whole sequence (paper) vs per-token.
+      correlated  — sample ONE head mask per forward and share it across ALL layers (drop a
+                    head's full-DEPTH circuit, not independently per layer). Mutually exclusive
+                    with layer_ramp. Reset each forward via a model-level pre-hook.
+      layer_ramp  — scale p linearly by depth: layer i (of L) uses p*(i+1)/L (regularize the
+                    task-specific top layers harder). Mutually exclusive with correlated."""
+    assert not (correlated and layer_ramp), "drophead: correlated + layer_ramp are exclusive"
     nH = model.config.num_attention_heads
-    projs = [mod for name, mod in model.named_modules()
-             if name.endswith((".attn.Wo", ".self_attn.o_proj"))]
+    projs = [mod for n, mod in model.named_modules()
+             if n.endswith((".attn.Wo", ".self_attn.o_proj"))]
     assert projs, "install_drophead: no attention out-projections found"
+    L = len(projs)
+    if state is None:
+        state = {"p": p, "infer": False}
+    if correlated:
+        state["cmask"] = None
+        model.register_forward_pre_hook(lambda m, i: state.update(cmask=None))
+
+    def make_hook(idx):
+        ramp = (idx + 1) / L if layer_ramp else 1.0
+
+        def pre_hook(module, inputs):
+            if not (module.training or state.get("infer", False)) or state["p"] <= 0:
+                return None
+            x = inputs[0]
+            pp = min(1.0, state["p"] * ramp)
+            dh = x.shape[-1] // nH
+            xv = x.view(*x.shape[:-1], nH, dh)
+            if correlated:
+                if state.get("cmask") is None:
+                    state["cmask"] = _drophead_keep(x, nH, pp, granularity, x.device)
+                keep = state["cmask"]
+            else:
+                keep = _drophead_keep(x, nH, pp, granularity, x.device)
+            k = keep.sum(-2, keepdim=True).to(x.dtype)
+            return ((xv * keep.to(x.dtype) * (nH / k)).reshape(x.shape),)
+
+        return pre_hook
+
+    for i, m in enumerate(projs):
+        m.register_forward_pre_hook(make_hook(i))
+    model._drophead_state = state
+    logger.info(f"DropHead installed: p={p} on {L} out-projections ({nH} heads; "
+                f"granularity={granularity} correlated={correlated} layer_ramp={layer_ramp} "
+                f"infer={state.get('infer', False)})")
+    return state
+
+
+def make_drophead_schedule_callback(state, p_max, schedule, warmup_frac=0.3):
+    """E49: TrainerCallback that mutates the DropHead state['p'] over training.
+      const    — p_max throughout (== E47)
+      warmup   — 0 → p_max linearly over the first warmup_frac, then p_max
+      rampdown — p_max → 0 linearly over all training
+      updown   — 0 → p_max (by warmup_frac) → 0 (the paper's scheduled DropHead)"""
+    from transformers import TrainerCallback
+
+    class _DHSched(TrainerCallback):
+        def on_step_begin(self, args, st, control, **kw):
+            prog = st.global_step / max(st.max_steps, 1)
+            if schedule == "const":
+                p = p_max
+            elif schedule == "warmup":
+                p = p_max * min(1.0, prog / warmup_frac)
+            elif schedule == "rampdown":
+                p = p_max * (1.0 - prog)
+            elif schedule == "updown":
+                p = (p_max * (prog / warmup_frac) if prog < warmup_frac
+                     else p_max * (1.0 - prog) / (1.0 - warmup_frac))
+            else:
+                p = p_max
+            state["p"] = max(0.0, p)
+
+    return _DHSched()
+
+
+def install_layerdrop(model, p):
+    """E49: LayerDrop / stochastic depth (Fan et al. 2020, arXiv 1909.11556) — the
+    structured-DEPTH sibling of DropHead: during training each encoder layer is skipped
+    (output = input, residual identity) with prob p; eval keeps all layers. Hook on each
+    layer's forward: if dropped, return the input hidden_states untouched (layers return a
+    tuple with hidden_states first). state_dict unchanged."""
+    hit = next(((n, m) for n, m in model.named_modules()
+                if n.endswith(("encoder.layer", "encoder.layers", "model.layers"))), None)
+    assert hit, "install_layerdrop: encoder layer list not found"
+    layers = hit[1]
+
+    def mk(layer):
+        def hook(module, args, output):
+            if module.training and torch.rand(()) < p:
+                hs = args[0] if args else output[0]
+                return (hs,) + tuple(output[1:]) if isinstance(output, tuple) else hs
+            return output
+        return hook
+
+    for lyr in layers:
+        lyr.register_forward_hook(mk(lyr))
+    logger.info(f"LayerDrop installed: p={p} on {len(layers)} encoder layers (train-only)")
+
+
+def install_dropffn(model, p, block=64):
+    """E49: DropFFN — structured dropout of FFN intermediate-neuron BLOCKS (DropBlock-style,
+    the structured-WIDTH sibling of DropHead). During training, contiguous blocks of `block`
+    intermediate neurons are zeroed with prob p at the FFN down-projection input and the
+    survivors rescaled; eval untouched. Hooks the input of ModernBERT `mlp.Wo` / causal
+    `mlp.down_proj` (dim = intermediate size)."""
+    downs = [m for n, m in model.named_modules()
+             if n.endswith((".mlp.Wo", ".mlp.down_proj"))]
+    assert downs, "install_dropffn: FFN down-projections not found"
 
     def pre_hook(module, inputs):
-        if not module.training:
+        if not module.training or p <= 0:
             return None
         x = inputs[0]
-        dh = x.shape[-1] // nH
-        xv = x.view(*x.shape[:-1], nH, dh)
-        lead = (x.shape[0], 1) if x.dim() == 3 else (1,)   # padded (B,L,H) vs unpadded (T,H)
-        keep = (torch.rand(*lead, nH, 1, device=x.device) >= p)
-        k = keep.sum(-2, keepdim=True)
-        keep = torch.where(k == 0, torch.ones_like(keep), keep)   # never drop ALL heads
-        k = keep.sum(-2, keepdim=True).to(x.dtype)
-        return ((xv * keep.to(x.dtype) * (nH / k)).reshape(x.shape),)
+        d = x.shape[-1]
+        nb = (d + block - 1) // block
+        lead = (x.shape[0], 1) if x.dim() == 3 else (1,)
+        keepb = (torch.rand(*lead, nb, device=x.device) >= p)
+        keep = keepb.repeat_interleave(block, dim=-1)[..., :d]
+        frac = keep.to(x.dtype).mean(-1, keepdim=True).clamp_min(1.0 / nb)
+        return (x * keep.to(x.dtype) / frac,)
 
-    for m in projs:
+    for m in downs:
         m.register_forward_pre_hook(pre_hook)
-    logger.info(f"DropHead installed: p={p} on {len(projs)} attention out-projections "
-                f"({nH} heads; train-mode only)")
+    logger.info(f"DropFFN installed: p={p} block={block} on {len(downs)} FFN down-projections")
 
 
 def install_msd(model, k, p):
@@ -448,9 +570,43 @@ def prune_ffn(model, keep_ratio):
         new_out.bias.data = w_out.bias.data.clone()
         layer.intermediate.dense, layer.output.dense = new_in, new_out
         n_pruned += 1
-    assert n_pruned, "no intermediate/output FFN pairs found for --ffn_keep"
+    if not n_pruned:
+        return _prune_ffn_modernbert(model, keep_ratio)   # granite GeGLU (Wi/Wo)
     model.config.intermediate_size = k
     logger.info(f"FFN width pruned in {n_pruned} layers: {inter} -> {k} neurons")
+
+
+def _prune_ffn_modernbert(model, keep_ratio):
+    """FFN-neuron width prune for ModernBERT GeGLU (granite). MLP is Wi: H->2I (split
+    input|gate), Wo: I->H, forward Wo(act(input)*gate). Neuron j uses Wi rows [j] and
+    [I+j] and Wo col [j]; score = |Wi_input_j|*|Wi_gate_j|*|Wo_col_j|, keep top-k, slice
+    all three. config.intermediate_size updated so from_pretrained reloads cleanly."""
+    import torch.nn as nn
+    k = None; n = 0
+    for name, layer in model.named_modules():
+        mlp = getattr(layer, "mlp", None)
+        if mlp is None or not (hasattr(mlp, "Wi") and hasattr(mlp, "Wo")):
+            continue
+        Wi, Wo = mlp.Wi, mlp.Wo
+        I = Wo.in_features                                  # intermediate size
+        assert Wi.out_features == 2 * I, f"unexpected GeGLU Wi shape {Wi.out_features} vs 2*{I}"
+        k = max(1, int(round(I * keep_ratio)))
+        w = Wi.weight.data
+        inp_n = w[:I].norm(dim=1); gate_n = w[I:].norm(dim=1)   # per-neuron row norms
+        score = inp_n * gate_n * Wo.weight.data.norm(dim=0)     # * |Wo col|
+        idx = torch.topk(score, k).indices.sort().values
+        keep_wi = torch.cat([idx, idx + I])                     # input rows + gate rows
+        new_Wi = nn.Linear(Wi.in_features, 2 * k, bias=Wi.bias is not None)
+        new_Wi.weight.data = w[keep_wi].clone()
+        if Wi.bias is not None: new_Wi.bias.data = Wi.bias.data[keep_wi].clone()
+        new_Wo = nn.Linear(k, Wo.out_features, bias=Wo.bias is not None)
+        new_Wo.weight.data = Wo.weight.data[:, idx].clone()
+        if Wo.bias is not None: new_Wo.bias.data = Wo.bias.data.clone()
+        mlp.Wi, mlp.Wo = new_Wi, new_Wo
+        n += 1
+    assert n, "no ModernBERT mlp.Wi/Wo FFN pairs found for --ffn_keep either"
+    model.config.intermediate_size = k
+    logger.info(f"ModernBERT FFN width pruned in {n} layers: {I} -> {k} neurons")
 
 
 def prune_attn_heads(model, keep_ratio):
@@ -1128,6 +1284,53 @@ def main():
     ap.add_argument("--reinit_layers", type=int, default=0,
                     help="re-initialize the top N encoder layers before training (retrieval-"
                          "pretrained tops may transfer worse than a fresh start)")
+    ap.add_argument("--ls_matrix", default="",
+                    help="E47: path to a (K,K) .npy target matrix for --loss lsmat — row y "
+                         "is the full soft target for true class y (rows sum to 1, entries "
+                         "may be NEGATIVE). Build with "
+                         "experiments/performance-boost/build_ls_matrix.py (uniform negative "
+                         "LS or grouped in-group-positive/out-group-negative smoothing)")
+    ap.add_argument("--drophead_p", type=float, default=0.0,
+                    help="E47: DropHead — zero each attention head's output with this prob "
+                         "during training (kept heads rescaled; eval untouched). 0 = off "
+                         "(training path unchanged). Zhou et al. 2020, 2004.13342")
+    ap.add_argument("--drophead_schedule", default="const",
+                    choices=["const", "warmup", "rampdown", "updown"],
+                    help="E49: DropHead p schedule over training (needs --drophead_p>0): "
+                         "const=E47 · warmup=0→p · rampdown=p→0 · updown=0→p→0 (paper)")
+    ap.add_argument("--drophead_warmup_frac", type=float, default=0.3,
+                    help="E49: fraction of training for the warmup/updown DropHead ramp")
+    ap.add_argument("--drophead_granularity", default="sequence",
+                    choices=["sequence", "token"],
+                    help="E49: drop a head for the whole sequence (paper) or per-token")
+    ap.add_argument("--drophead_correlated", action="store_true",
+                    help="E49: share ONE head mask across all layers (drop a head's full-depth "
+                         "circuit); exclusive with --drophead_layer_ramp")
+    ap.add_argument("--drophead_layer_ramp", action="store_true",
+                    help="E49: scale p by depth — layer i of L uses p*(i+1)/L; exclusive with "
+                         "--drophead_correlated")
+    ap.add_argument("--layerdrop_p", type=float, default=0.0,
+                    help="E49: LayerDrop / stochastic depth — skip each encoder layer with "
+                         "this prob during training (residual identity); eval untouched. "
+                         "0 = off. Fan et al. 2020, 1909.11556")
+    ap.add_argument("--dropffn_p", type=float, default=0.0,
+                    help="E49: DropFFN — structured dropout of FFN intermediate-neuron blocks "
+                         "(size --dropffn_block) during training; eval untouched. 0 = off")
+    ap.add_argument("--dropffn_block", type=int, default=64,
+                    help="E49: DropFFN block size (contiguous intermediate neurons per unit)")
+    ap.add_argument("--child_p", type=float, default=0.0,
+                    help="E47: Child-Tuning-D — keep only this fraction of encoder params "
+                         "trainable (top squared-grad Fisher mass, one pre-pass over "
+                         "--child_fisher_batches train batches); the rest get grads zeroed "
+                         "all run. Head always trainable. 0 = off. Xu et al., 2109.05687")
+    ap.add_argument("--child_fisher_batches", type=int, default=64,
+                    help="E47: #train batches for the Child-Tuning-D fisher pre-pass")
+    ap.add_argument("--msd_k", type=int, default=0,
+                    help="E47: multi-sample dropout — run the classifier head K times with "
+                         "independent dropout masks (train only, logits averaged). 0/1 = off. "
+                         "Inoue 2019, 1905.09788")
+    ap.add_argument("--msd_p", type=float, default=0.3,
+                    help="E47: dropout prob for --msd_k head samples")
     ap.add_argument("--hist_dropout", type=float, default=0.0,
                     help="training-time augmentation: drop each history event with this "
                          "probability, re-drawn every epoch (val is never dropped)")
@@ -1252,7 +1455,8 @@ def main():
                          "--init_from: the base stays frozen, checkpoints hold only "
                          "adapter+head — built for shared-backbone specialist packs")
     ap.add_argument("--loss", default="ce",
-                    choices=["ce", "focal", "ls", "wce", "la", "gce", "sce", "apl", "boot"],
+                    choices=["ce", "focal", "ls", "wce", "la", "gce", "sce", "apl", "boot",
+                             "lsmat"],
                     help="head classification loss — REPLACES cross-entropy (not an "
                          "aux term). ce = plain CE (default; path unchanged); focal = "
                          "multiclass focal loss (see --focal_gamma); ls = CE with "
@@ -1474,16 +1678,30 @@ def main():
         prune_attn_heads(model, args.heads_keep)   # after prune_layers: fresh indices
     if args.head_layers:
         replace_head(model, args.head_layers, args.head_act)
+    drophead_state = None
+    if args.drophead_p > 0:                     # E47/E49 — train-mode hook, eval untouched
+        drophead_state = install_drophead(
+            model, args.drophead_p, granularity=args.drophead_granularity,
+            correlated=args.drophead_correlated, layer_ramp=args.drophead_layer_ramp)
+    if args.layerdrop_p > 0:                    # E49 — structured depth
+        install_layerdrop(model, args.layerdrop_p)
+    if args.dropffn_p > 0:                       # E49 — structured FFN-block
+        install_dropffn(model, args.dropffn_p, args.dropffn_block)
+    if args.msd_k > 1:                          # E47 — train-mode head resampling
+        install_msd(model, args.msd_k, args.msd_p)
     if args.factor_ffn:
         from src.factored_ffn import build_factored_model
-        # calibrate whitened-SVD on train texts (no vocab remap: a full-vocab
-        # checkpoint). Move the model to the compute device first so the 256-sample
-        # calibration pass runs on GPU when available.
+        # calibrate whitened-SVD on train texts. Move the model to the compute device
+        # first so the 256-sample calibration pass runs on GPU when available.
+        # --remap_tokens: the ckpt is vocab-pruned, so calib inputs must be remapped to
+        # pruned rows before the forward (else full-space ids index pruned embeddings).
         model.to(device)
+        fremap = (torch.from_numpy(np.load(args.remap_tokens)).long().to(device)
+                  if args.remap_tokens else None)
         calib_texts = [texts[i] for i in tr[: args.factor_calib]]
         done = build_factored_model(model, tok, calib_texts, args.factor_ffn,
                                     max_len=args.max_len, n_calib=args.factor_calib,
-                                    device=device)
+                                    device=device, remap=fremap)
         logger.info(f"FFN factorized to rank {args.factor_ffn} in {len(done)} "
                     f"projections (whitened-SVD init); config.factored_ffn recorded")
 
@@ -1713,6 +1931,17 @@ def main():
                         f"(E32 fix — LS stays inside the CE alongside rdrop/supcon)")
     if args.loss != "ce" and teacher is None and not aux_on:
         class_weight = log_prior = None
+        ls_matrix = None
+        if args.loss == "lsmat":
+            assert args.ls_matrix, "--loss lsmat needs --ls_matrix <path.npy>"
+            ls_matrix = torch.tensor(np.load(args.ls_matrix), dtype=torch.float32)
+            assert ls_matrix.shape == (len(classes), len(classes)), \
+                f"--ls_matrix shape {tuple(ls_matrix.shape)} != ({len(classes)},{len(classes)})"
+            assert torch.allclose(ls_matrix.sum(1), torch.ones(len(classes)), atol=1e-5), \
+                "--ls_matrix rows must sum to 1"
+            logger.info(f"lsmat loss: {args.ls_matrix} diag[min={ls_matrix.diag().min():.3f} "
+                        f"max={ls_matrix.diag().max():.3f}] offdiag[min={ (ls_matrix - torch.diag(ls_matrix.diag())).min():.4f} "
+                        f"max={(ls_matrix - torch.diag(ls_matrix.diag())).max():.4f}]")
         if args.loss in ("wce", "la"):
             counts = np.bincount(y_ids[tr], minlength=len(classes)).astype(np.float64)
             assert (counts > 0).all(), f"--loss {args.loss}: empty class in train split: {counts}"
@@ -1730,7 +1959,7 @@ def main():
                                         args.label_smoothing, class_weight, log_prior,
                                         args.la_tau, args.gce_q, args.sce_alpha,
                                         args.sce_beta, args.apl_alpha, args.apl_beta,
-                                        args.boot_beta, args.boot_mode)
+                                        args.boot_beta, args.boot_mode, ls_matrix)
     if args.ltp_final_threshold > 0 and not args.ltp_hard_recover:
         assert teacher is None and not aux_on, \
             "LTP not combinable with --distill_from/--rdrop/--supcon/--hard_boundary"
@@ -1797,6 +2026,15 @@ def main():
         dyn_callbacks.append(make_dynamics_logger(
             train_ds, collator, tr, y_ids[tr], args.log_dynamics))
         logger.info(f"logging per-epoch train dynamics -> {args.log_dynamics}")
+    if drophead_state is not None and args.drophead_schedule != "const":  # E49
+        dyn_callbacks.append(make_drophead_schedule_callback(
+            drophead_state, args.drophead_p, args.drophead_schedule,
+            args.drophead_warmup_frac))
+        logger.info(f"DropHead schedule={args.drophead_schedule} "
+                    f"warmup_frac={args.drophead_warmup_frac}")
+    if args.child_p > 0:                        # E47 — fisher pre-pass + grad masks
+        apply_child_tuning(model, train_ds, collator, device, args.child_p,
+                           n_batches=args.child_fisher_batches, bs=args.batch_size)
     trainer = trainer_cls(
         model=model, args=targs, train_dataset=train_ds, eval_dataset=val_ds,
         data_collator=collator, compute_metrics=make_compute_metrics(len(classes)),

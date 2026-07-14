@@ -1,0 +1,31 @@
+{
+ "mode": "grouped",
+ "eps_in": 0.02,
+ "eps_out": 0.01,
+ "groups": [
+  [
+   "edit_file",
+   "write_file",
+   "apply_patch"
+  ],
+  [
+   "run_bash",
+   "run_tests",
+   "lint_or_typecheck"
+  ],
+  [
+   "ask_user",
+   "plan_task",
+   "web_search"
+  ],
+  [
+   "read_file",
+   "grep_search",
+   "list_directory",
+   "glob_pattern"
+  ],
+  [
+   "respond_only"
+  ]
+ ]
+}
