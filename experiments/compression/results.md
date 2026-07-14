@@ -1,9 +1,17 @@
-# Branch: compression — granite compression program (status board)
+# Branch: compression — model compression program (status board)
 
-**Primary model = granite** (`ibm-granite/granite-embedding-311m-multilingual-r2`,
-ModernBERT-class: 22 layers, H=768, GeGLU I=1152, vocab 262,152). All prior qwen3
-compression results are *evidence about the method*, not about granite — transfer must be
-re-measured (E16/E16b lesson).
+**Two model tracks, one shared method taxonomy:**
+- **granite** (`ibm-granite/granite-embedding-311m-multilingual-r2`, ModernBERT-class:
+  22 layers, H=768, GeGLU I=1152, vocab 262,152) — the deployed primary. **E31**.
+- **qwen3** (`Qwen/Qwen3-Embedding-0.6B`, decoder-style: 28 layers, H≈1024, FFN 44% of
+  params, vocab 151k) — **E40** (user 2026-07-14, "showing promising results, explore it").
+  Higher accuracy at E8 (qwen3_ls LB **0.77921** > granite_ls 0.77738) but ~un-shippable
+  on speed (9:18/30k on 3090 → over budget on slower DACON HW). Compression is the
+  *enabler* here, not just a novelty layer — and it's the model where structured
+  compression has the MOST evidence and headroom (see below).
+
+Per-model results transfer across backbones only as *evidence about the method*, never as
+a granted result — always re-measure (E16 free on qwen3 vs E16b VOID on granite lesson).
 
 **Two objectives, tracked separately per method:**
 1. **Size ↓** — model/package size (submission caps; trio is 836M vs cap, 4th member breaks it).
@@ -25,7 +33,9 @@ Contrast qwen3-0.6B (FFN 44% / emb 26% / attn 30%): the E3/E4 "FFN is the prize"
 does **not** carry over — on granite the encoder stack is only ~35% of params, so
 size gains beyond vocab-prune+fp16 are capped; **stack methods matter for speed, not size**.
 
-## Method-family status board
+## Method-family status board (granite track — E31)
+
+*qwen3 track = E40 (own section below); this board is granite unless noted.*
 
 | # | Family | Method(s) | Status on granite | Size ↓ | Speed ↑ | Evidence / next action |
 |---|---|---|---|---|---|---|
@@ -82,6 +92,50 @@ parallel instead of committing to one ordered stack. Full spec: EXPERIMENTS.md �
   KD student gates (≥0.7803), Stage C's target may be the student — the combo transfers.
 - Cost: recovery FT ≈ 4–5 h/3090; Stage A ≈ 5–7 trainings + 2 free probes; Stage B ≤ 8
   trainings → ~2 fleet waves.
+
+## qwen3 track — E40 (user 2026-07-14: "showing promising results, explore it")
+
+**Why qwen3 is the higher-headroom compression target — the mass is IN the compute stack**
+(inverse of granite). qwen3-0.6B param split: **FFN 44.4%** (gate/up/down) · **attn 29.6%**
+(q 9.9 / k 4.9 / v 4.9 / o 9.9) · **emb 26.1%**. So ~74% of params are in the layers that
+also cost FLOPs — every structured cut buys BOTH size and speed, unlike granite where 65%
+is a zero-FLOP embedding lookup.
+
+**Both key axes are already PROVEN on qwen3 individually — but never COMBINED:**
+
+| Axis | Result on qwen3 | Δ | Speed | Code |
+|---|---|---|---|---|
+| FFN low-rank (E3/E4) | factor r=512 + recovery FT = **0.7688** vs uncompressed E8b 0.7643 | **+0.0045 (net-POSITIVE)** | ~15% params; ms/sample never measured | `src/factored_ffn.py`, `--factor_ffn`; whitening = SVD-LLM match |
+| Depth prune (E16) | 28→14 (ShortGPT/BI, kept `[0-7,9-11,19,21,27]`) + recovery = **0.7638** vs 0.7643 | −0.0005 (~FREE) | **~2×** (half depth) | `--keep_layers`; packaged E16z |
+
+E4's own note says it *stacks with* E16 depth-prune — this has never been tested. **That
+untested product is E40's core bet:** depth-14 (~2×) × FFN-factor r512 (denoise + ~15%) →
+a qwen3 that fits the budget AND keeps its accuracy edge. If it lands, the model that beat
+granite at E8 but was too slow to ship becomes shippable.
+
+**E40 = the qwen3 mirror of E31's search** (structured only; unstructured excluded, no HW
+kernels). Same 3-stage design; the axis screens carry priors, so the search is faster:
+- **B1 depth** — reuse the E16 BI selection (`[0-7,9-11,19,21,27]`) as the keep-14 anchor;
+  add keep-18 / keep-10 rungs to map the accuracy/speed curve past the one proven point.
+- **B2 FFN low-rank** — E4 r=512 is the proven point; add r=384 (E3 was −1.35pt training-
+  free — does recovery close it, as it did at r=512?) and r=640 rungs.
+- **B3 attention** — NEW for qwen3 (attn = 30% here vs a minor tile on granite): whitened-
+  SVD on q/o (the big 9.9% projections) and/or KV-SVD (Palu: 95.5% energy in 25% of dims,
+  −0.5pt @ r512 training-free) + recovery. Probe first (training-free), factor only on a knee.
+- **B4 structured width / token pruning** — reserve slots; lower priority than B1×B2×B3.
+
+**Stage B factorial** = the depth×FFN×attn product, prunes composed structurally FIRST then
+ONE joint recovery FT per combo (not sequential recoveries). ≤8 combos for the 3 axes.
+**Target:** Pareto point on (uncal macro-F1, ms/sample→30k wall-clock, params) that clears
+the 10-min budget with margin AND holds ≥ the qwen3_ls 0.77921 LB it came from. Then package
+(vocab-prune 151k + fp16 + parity) → LB slot. This is a *separate submission lane* from the
+granite/trio line — a fast high-accuracy qwen3 could also re-enter the ensemble as a 4th
+member (previously blocked purely by qwen3's runtime).
+
+**Priors that make this cheaper than E31:** BI selection + factored-FFN code + SVD-LLM
+whitening all already exist and are validated on qwen3; the recovery-FT harness is the
+same finetune.py path. Main new code = attention SVD factor modules (B3) mirroring
+`factored_ffn.py`. Full spec: EXPERIMENTS.md §E40.
 
 ## Open questions
 
