@@ -157,6 +157,20 @@ compression is the enabler. Detail per axis in the linked method files.
 
 ---
 
+## Stage-B combination results (granite t031, honest 3.5k held-out, 2026-07-14)
+
+| combo | macro-F1 | net ΔF1 | flip | KL | vs single axes |
+|---|---|---|---|---|---|
+| **depth-18 × FFN-width-75%** (joint recovery) | **0.78407** | **−0.0017** ✅ | 5.4% | 0.020 | BEATS depth-18 alone (−0.0038) |
+
+**Headline: the combination CLEARS the −0.002 gate** (first granite structured combo to do so),
+at ~18% fewer layers AND 25% fewer FFN neurons — and stacking width onto depth with ONE joint
+recovery FT beat depth-alone (−0.0017 vs −0.0038). Interpretation: extra structured pruning +
+joint recovery acts as regularization (or ≥noise-level improvement). Stacks on the nf4 quant
+(−30%, [[E41 qwen3 AWP ceiling]] memo) → a meaningfully faster granite at ~baseline accuracy.
+Standalone width arms (keep-75/50/25) + FFN low-rank (probe: gentle, small yield since FFN is
+18.7%) pending/parked — see [depth-pruning.md](depth-pruning.md) / [width-pruning.md](width-pruning.md).
+
 ## Open questions
 
 - granite depth recovery-FT: does keep-18's −0.015 close to net-≈0? (real GPU box).
