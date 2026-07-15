@@ -1,0 +1,43 @@
+2026-07-13 19:20:53.463 | INFO     | src.runlog:log_cmd:16 - CMD: python /mnt/nfs/data/research/ocean_backup-dacon/experiments/augmentation/e36c_progressive_hist.py
+2026-07-13 19:20:54.746 | INFO     | __main__:main:103 - 
+===== e9_v1_honest  (v1)  [HONEST val] =====
+2026-07-13 19:21:10.565 | INFO     | __main__:run_model:64 -   depth hist0  single-view F1 = 0.4044
+2026-07-13 19:21:27.356 | INFO     | __main__:run_model:64 -   depth hist1  single-view F1 = 0.5287
+2026-07-13 19:21:49.214 | INFO     | __main__:run_model:64 -   depth hist2  single-view F1 = 0.5322
+2026-07-13 19:22:15.164 | INFO     | __main__:run_model:64 -   depth hist3  single-view F1 = 0.6541
+2026-07-13 19:22:46.000 | INFO     | __main__:run_model:64 -   depth hist4  single-view F1 = 0.6617
+2026-07-13 19:23:20.811 | INFO     | __main__:run_model:64 -   depth hist5  single-view F1 = 0.7003
+2026-07-13 19:24:00.287 | INFO     | __main__:run_model:64 -   depth hist6  single-view F1 = 0.7006
+2026-07-13 19:24:43.124 | INFO     | __main__:run_model:64 -   depth hist7  single-view F1 = 0.7325
+2026-07-13 19:25:29.762 | INFO     | __main__:run_model:64 -   depth hist8  single-view F1 = 0.7359
+2026-07-13 19:26:19.086 | INFO     | __main__:run_model:64 -   depth hist9  single-view F1 = 0.7446
+2026-07-13 19:27:11.413 | INFO     | __main__:run_model:64 -   depth hist10 single-view F1 = 0.7519
+2026-07-13 19:28:05.718 | INFO     | __main__:run_model:64 -   depth hist11 single-view F1 = 0.7579
+2026-07-13 19:29:02.196 | INFO     | __main__:run_model:64 -   depth hist12 single-view F1 = 0.7558
+2026-07-13 19:29:02.261 | INFO     | __main__:main:106 -   --- e9_v1_honest results ---
+2026-07-13 19:29:02.261 | INFO     | __main__:main:110 -   single full-history (baseline)     F1 = 0.7558  (Δ +0.0000)
+2026-07-13 19:29:02.262 | INFO     | __main__:main:110 -   avg hist0..histH (literal)         F1 = 0.6942  (Δ -0.0616)
+2026-07-13 19:29:02.262 | INFO     | __main__:main:110 -   avg hist1..histH (drop hist0)      F1 = 0.7079  (Δ -0.0480)
+2026-07-13 19:29:02.279 | INFO     | __main__:main:110 -   avg histceil(H/2)..histH           F1 = 0.7405  (Δ -0.0153)
+2026-07-13 19:29:02.302 | INFO     | __main__:main:110 -   avg last-3 depths {H-2..H}         F1 = 0.7561  (Δ +0.0003)  <== beats
+2026-07-13 19:29:02.324 | INFO     | __main__:main:103 - 
+===== e8a_richargs_champ  (richargs)  [val CONTAMINATED (relative only)] =====
+2026-07-13 19:29:17.630 | INFO     | __main__:run_model:64 -   depth hist0  single-view F1 = 0.4331
+2026-07-13 19:29:36.070 | INFO     | __main__:run_model:64 -   depth hist1  single-view F1 = 0.5556
+2026-07-13 19:29:59.541 | INFO     | __main__:run_model:64 -   depth hist2  single-view F1 = 0.5589
+2026-07-13 19:30:26.965 | INFO     | __main__:run_model:64 -   depth hist3  single-view F1 = 0.6928
+2026-07-13 19:30:59.257 | INFO     | __main__:run_model:64 -   depth hist4  single-view F1 = 0.7010
+2026-07-13 19:31:35.417 | INFO     | __main__:run_model:64 -   depth hist5  single-view F1 = 0.7411
+2026-07-13 19:32:16.184 | INFO     | __main__:run_model:64 -   depth hist6  single-view F1 = 0.7409
+2026-07-13 19:33:00.331 | INFO     | __main__:run_model:64 -   depth hist7  single-view F1 = 0.7736
+2026-07-13 19:33:48.095 | INFO     | __main__:run_model:64 -   depth hist8  single-view F1 = 0.7746
+2026-07-13 19:34:38.410 | INFO     | __main__:run_model:64 -   depth hist9  single-view F1 = 0.7932
+2026-07-13 19:35:31.680 | INFO     | __main__:run_model:64 -   depth hist10 single-view F1 = 0.7946
+2026-07-13 19:36:26.909 | INFO     | __main__:run_model:64 -   depth hist11 single-view F1 = 0.7969
+2026-07-13 19:37:24.330 | INFO     | __main__:run_model:64 -   depth hist12 single-view F1 = 0.7974
+2026-07-13 19:37:24.398 | INFO     | __main__:main:106 -   --- e8a_richargs_champ results ---
+2026-07-13 19:37:24.399 | INFO     | __main__:main:110 -   single full-history (baseline)     F1 = 0.7974  (Δ +0.0000)
+2026-07-13 19:37:24.399 | INFO     | __main__:main:110 -   avg hist0..histH (literal)         F1 = 0.7451  (Δ -0.0523)
+2026-07-13 19:37:24.399 | INFO     | __main__:main:110 -   avg hist1..histH (drop hist0)      F1 = 0.7527  (Δ -0.0447)
+2026-07-13 19:37:24.416 | INFO     | __main__:main:110 -   avg histceil(H/2)..histH           F1 = 0.7843  (Δ -0.0131)
+2026-07-13 19:37:24.438 | INFO     | __main__:main:110 -   avg last-3 depths {H-2..H}         F1 = 0.7931  (Δ -0.0043)

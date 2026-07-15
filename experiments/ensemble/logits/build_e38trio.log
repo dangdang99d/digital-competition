@@ -1,0 +1,10 @@
+2026-07-14 22:27:14.821 | INFO     | src.runlog:log_cmd:16 - CMD: python experiments/ensemble/build_submission.py --runs output/e38/promote_top4/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e38_t031fd,output/optuna/vast_r1/final_fd/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e28_full_t019,output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e25c_richmeta_ls_bf16 --tags e38_t031fd,e28_full_t019,e25c_richmeta_ls_bf16 --variants richargs,richargs,richmeta --out submissions/submit_0714_e38_trio.zip --build_dir build_e38trio --skip_parity
+2026-07-14 22:27:22.262 | INFO     | __main__:main:132 - used ids (richargs): 10,773
+2026-07-14 22:27:27.091 | INFO     | __main__:main:132 - used ids (richmeta): 10,796
+2026-07-14 22:27:27.096 | INFO     | __main__:main:135 - keep 54,696 tokens (union-used 10,798 + margin 50,000)
+Skipping import of cpp extensions due to incompatible torch version. Please upgrade to torch >= 2.11.0 (found 2.7.1+cu128).
+2026-07-14 22:27:46.350 | INFO     | __main__:main:166 - member_0_e38_t031fd (richargs): pruned fp16 -> build_e38trio/model/member_0_e38_t031fd (306 MB)
+2026-07-14 22:28:07.387 | INFO     | __main__:main:166 - member_1_e28_full_t019 (richargs): pruned fp16 -> build_e38trio/model/member_1_e28_full_t019 (306 MB)
+2026-07-14 22:29:00.872 | INFO     | __main__:main:166 - member_2_e25c_richmeta_ls_bf16 (richmeta): pruned fp16 -> build_e38trio/model/member_2_e25c_richmeta_ls_bf16 (306 MB)
+2026-07-14 22:29:01.050 | WARNING  | __main__:main:174 - PARITY SKIPPED (no GPU) — do NOT upload before a --parity_only PASS
+2026-07-14 22:30:57.264 | SUCCESS  | __main__:main:184 - submissions/submit_0714_e38_trio.zip: 833 MB OK under cap

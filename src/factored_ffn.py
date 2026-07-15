@@ -30,7 +30,22 @@ import os
 import torch
 import torch.nn as nn
 
-FFN_PROJS = ("gate_proj", "up_proj", "down_proj")
+FFN_PROJS = ("gate_proj", "up_proj", "down_proj")   # qwen3 SwiGLU
+# ⚠️ mlp-qualified: bare "Wo" also matches ModernBERT's attn.Wo (attention output) —
+# that would factor attention too, conflating the FFN axis. Keep the "mlp." prefix.
+FFN_PROJS_MODERNBERT = ("mlp.Wi", "mlp.Wo")          # granite/ModernBERT GeGLU (FFN only)
+
+
+def detect_ffn_projs(model):
+    """Pick the FFN Linear suffixes present in this backbone (qwen3 vs granite).
+    Low-rank factorization is generic over the Linear shape, so only the module
+    names differ — no GeGLU-vs-SwiGLU special-casing needed for the SVD itself."""
+    names = {n for n, _ in model.named_modules()}
+    if any(n.endswith("gate_proj") for n in names):
+        return FFN_PROJS
+    if any(n.endswith(("mlp.Wi", "mlp.Wo")) for n in names):
+        return FFN_PROJS_MODERNBERT
+    raise RuntimeError("no known FFN projection modules (gate/up/down or Wi/Wo) found")
 
 
 # ---- E3-validated whitened-SVD math (VERBATIM from analysis/palu_probe_ffn.py) ----
@@ -171,13 +186,15 @@ def factor_ffn_from_grams(model, grams, targets, rank, projs=FFN_PROJS):
 
 
 def build_factored_model(model, tok, calib_texts, rank, max_len=512, remap=None,
-                         projs=FFN_PROJS, n_calib=256, bs=8, device=None):
+                         projs=None, n_calib=256, bs=8, device=None):
     """End-to-end: tokenize calibration texts, collect FFN input grams, and replace
     every FFN projection with its whitened-SVD FactoredLinear at `rank`.
 
     Mutates `model` in place and returns [(name, actual_r)]. `remap` only for the
-    vocab-pruned champion (E3). Default behaviour (n_calib=256) matches E3.
+    vocab-pruned champion (E3). projs=None -> auto-detect (qwen3 vs granite Wi/Wo).
     """
+    if projs is None:
+        projs = detect_ffn_projs(model)
     device = device or next(model.parameters()).device
     calib = list(calib_texts)[:n_calib]
     enc = [tok(t, truncation=True, max_length=max_len) for t in calib]

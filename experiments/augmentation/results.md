@@ -7,6 +7,119 @@ R-Drop 0.7716 / FGM ε0.5 0.7734), gentle noise FLAT (NEFTune 0.7794 / hist_drop
 stopped (not destroyed). ⚠️ GPU1 was faulty (blacklisted) — caused false "R-Drop
 unstable"/"FGM ε-bracket" NaN scares mid-run; corrected. See Verdict + GPU1 note.**
 
+---
+
+## E36 · Data-augmentation revisit (2026-07-13) — the FOUR untried directions
+
+User reopened augmentation ("try data augmentation approach", all four directions). Scoping
+first, then arm A run. Venue for training arms = **vast.ai** (user call); this box (ArchServer
+RTX 4060 8GB) does the free local screens only.
+
+### Sub-sequence / prefix expansion — CLOSED on data analysis (NOT run)
+The task is next-action prediction over a session; "sub-sequence expansion" = turn one
+length-N session into N examples via its prefixes (`[A₁..A_{k-1}] → A_k`). **But the
+organizers already did this**: the 70k train rows ARE the per-step prefixes (`…-step_08` =
+prefix through step 7 → predict step 8). Measured yield of expanding anyway: **70,000 rows →
+73,205 recoverable prefix-points = only +4.6% new** (3,205 gap-fill rows, e.g. sessions
+missing an intermediate `step_12`). The only *other* thing prefixes add is different history
+*truncations* of the same target — which is `hist_dropout`/truncation-jitter, already
+FLAT-to-negative (E32 hist_dropout, E24 token-drop −0.008). ⇒ near no-op; closed without a run.
+(Script: ad-hoc analysis, `/home/kyusang/.conda/envs/dacon/bin/python`.)
+
+### Arm A · Inference-time multi-view averaging — ❌ FLAT (best Δ +0.0003, noise)
+The professor's LITERAL idea (feed multiple augmented views, average outputs), never run
+before (E32 = training-time regularizers; E23 = entropy-min TTA). One trained model → serialize
+each val row into K views → softmax-average → argmax. Two screens on the honest 14k val
+(`split_indices seed=42`), fp16, local 4060:
+
+**Screen 1 — honest model `e9_granite_ls` (v1+LS, split-trained → clean val), degraded views**
+`CMD: CUDA_VISIBLE_DEVICES=0 python -m experiments.augmentation.e36_multiview_screen` (default ckpt).
+
+| View | macro-F1 | Δ vs train view |
+|------|----------|-----------------|
+| v1 full (**train view = baseline**) | **0.7558** | — |
+| v1 h12 | 0.7558 | +0.0000 (histories rarely >12 events → no diversity) |
+| v1 h8 / h6 / h4 | 0.7359 / 0.7006 / 0.6617 | −0.020 / −0.055 / −0.094 (truncation destroys signal) |
+| nometa / leanact (full) | 0.7185 / 0.6972 | −0.037 / −0.061 (off-variant, off-distribution) |
+| **avg trunc[full,12,8]** | **0.7560** | **+0.0001** (best; noise) |
+| avg trunc[full,12,8,6] / +[..,4] | 0.7477 / 0.7389 | −0.008 / −0.017 |
+
+**Screen 2 (decisive) — champion `e8a_ls_richargs` fed EQUAL-QUALITY close-cousin views**
+richargs/richfiles/richmeta all ≈0.797 (E25: near-identical quality, different framing) — the
+genuine "diverse-but-equal" views. Val is full_data-contaminated (absolute F1 inflated ~+0.017
+vs the 0.7803 CV) but near-equal views memorize comparably ⇒ the *relative* avg-vs-single signal
+is clean. `CMD: CUDA_VISIBLE_DEVICES=0 python -m experiments.augmentation.e36b_richviews`.
+
+| View / combo | macro-F1 | Δ vs richargs |
+|--------------|----------|---------------|
+| richargs full (**baseline**) | **0.7974** | — |
+| richfiles / richmeta / richargs-h12 | 0.7969 / 0.7962 / 0.7974 | −0.0005 / −0.0012 / +0.0000 |
+| **avg[argfull,filesfull,metafull]** | **0.7977** | **+0.0003** (best; noise) |
+| avg pairs / avg-all-4 | 0.7970–0.7974 | −0.0004 … +0.0000 |
+
+**Verdict (arm A ❌):** inference-time multi-view averaging does NOT help — neither degraded
+views (−) nor equal-quality diverse views (+0.0003 noise). **Mechanism:** the +0.008 E26 trio
+gain is *different-model* error-diversity; one model's outputs across input *views* are too
+CORRELATED (same weights → same mistakes) to average profitably. The view change doesn't
+decorrelate errors the way a different seed/backbone does. Figure:
+[figures/e36a_multiview.png](figures/e36a_multiview.png). Probs cached
+`experiments/augmentation/e36_multiview_probs.npz`. Contamination caveat only weakens the
+already-null screen-2; screen 1 is honest and equally flat. **Not submission-worthy; not an
+ensemble-member play.**
+
+#### Arm A follow-up (user 2026-07-13) · PROGRESSIVE-HISTORY averaging — ❌ net-negative
+User asked to try the specific view axis: per row build hist0, hist1, …, histH (hist_j = last
+j history events, hist0 = zero history) and average outputs over j=0..H. Ran on both models,
+14k val, `CMD: CUDA_VISIBLE_DEVICES=0 python -m experiments.augmentation.e36c_progressive_hist`
+(detached setsid; log `experiments/augmentation/e36c_progressive.log`).
+
+**Single-view F1 is MONOTONIC in depth** (e9 honest / e8a champ): hist0 0.4044/0.4331 → hist3
+0.6541/0.6928 → hist6 0.7006/0.7409 → hist9 0.7446/0.7932 → hist12(full) **0.7558/0.7974**.
+More history is strictly better ⇒ every truncated view is a *handicapped* prediction, not a peer.
+
+| Averaging scheme | e9 honest Δ | e8a champ Δ |
+|---|---|---|
+| single full-history (baseline) | 0.7558 | 0.7974 |
+| avg hist0..histH (literal) | −0.0616 | −0.0523 |
+| avg hist1..histH (drop hist0) | −0.0480 | −0.0447 |
+| avg histceil(H/2)..histH | −0.0153 | −0.0131 |
+| avg last-3 depths {H−2..H} | +0.0003 | −0.0043 |
+
+**Verdict:** confirmed net-negative — the more truncated depths you average in, the worse
+(−0.05..−0.06 for the full sweep); only the top-3-depths scheme reaches noise (+0.0003/−0.0043)
+because histories cap at 12 so hist10–12 barely differ. Distinct failure mode from the rich-view
+screen: there views were equal-quality-but-redundant (Δ≈0); here they're a strict QUALITY LADDER
+(deleting history deletes signal — E1/E24 low-redundancy input). Both models agree exactly.
+Figure: [figures/e36c_progressive_hist.png](figures/e36c_progressive_hist.png). Script
+`e36c_progressive_hist.py`.
+
+#### Arm A probe (user idea) · FORCE history length = 12 by padding — ❌ hurts
+Hypothesis: is the monotonic depth curve information content (1) or a length/positional bias
+(2, in which case padding short rows to 12 would help)? Pad each row's history to 12 events at
+the FRONT (real recent events kept adjacent to prompt); padding adds NO real info (dup/random)
+so this isolates length-bias. Honest e9, clean 14k val (9,633/14,000 rows have <12 real events).
+`CMD: CUDA_VISIBLE_DEVICES=0 python -m experiments.augmentation.e36d_padhist` (log e36d_padhist.log).
+
+| Mode | overall | Δ | short rows H<12 | Δ short |
+|---|---|---|---|---|
+| natural (baseline) | 0.7558 | — | 0.7464 | — |
+| pad-tile (cycle row's own history) | 0.7045 | −0.0513 | 0.6682 | −0.0783 |
+| pad-repfirst (repeat oldest event) | 0.7257 | −0.0301 | 0.7050 | −0.0414 |
+| pad-random (events from other rows) | 0.7057 | −0.0502 | 0.6717 | −0.0747 |
+
+**Verdict: hypothesis (2) refuted — it's information content, not length bias.** Every padding
+mode HURTS (−0.03 to −0.05 overall, −0.04 to −0.08 on the affected short rows). Duplicating a
+row's real history (tile/repfirst) creates repetitive out-of-distribution inputs the model
+misreads; random events inject false context. (Aside: short-real-history rows score HIGHER
+naturally, 0.7464, than the H=12 group 0.7158 — long capped sessions are the harder population;
+the within-row truncation monotonicity ≠ across-row difficulty.) No length knob to exploit.
+Figure: [figures/e36d_padhist.png](figures/e36d_padhist.png). Script `e36d_padhist.py`.
+
+— Remaining arms (A2 train-on-mixed-views · C mixup · D E15c
+offline-translation) NOT run (user: stop after A). A2's prior is now weak: for multi-view to
+pay, the model must be TRAINED so views are equal-quality-AND-decorrelated, and screen-2 shows
+even equal-quality views stay error-correlated under shared weights.
+
 ## Motivation
 
 Professor's suggestion: feed multiple augmented versions of each input and average the

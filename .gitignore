@@ -77,3 +77,6 @@ presentation/notion*/
 build_tta/
 # stale sync backup of .git (kyusang_main salvaged to archive/kyusang_main)
 .git.synced-backup/
+trt_int8_work/
+experiments/quantization/_work/
+experiments/compression/quantization/_work/

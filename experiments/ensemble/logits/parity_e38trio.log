@@ -1,0 +1,6 @@
+2026-07-14 22:32:42.387 | INFO     | src.runlog:log_cmd:16 - CMD: python experiments/ensemble/build_submission.py --parity_only --runs x,x,x --tags e38_t031fd,e28_full_t019,e25c_richmeta_ls_bf16 --variants richargs,richargs,richmeta --out x --build_dir build_e38trio
+Skipping import of cpp extensions due to incompatible torch version. Please upgrade to torch >= 2.11.0 (found 2.7.1+cu128).
+2026-07-14 22:33:17.348 | INFO     | __main__:parity:84 - parity e38_t031fd (richargs): argmax flips 0.0333% (tol 0.10%)
+2026-07-14 22:33:43.677 | INFO     | __main__:parity:84 - parity e28_full_t019 (richargs): argmax flips 0.0667% (tol 0.10%)
+2026-07-14 22:34:09.137 | INFO     | __main__:parity:84 - parity e25c_richmeta_ls_bf16 (richmeta): argmax flips 0.0333% (tol 0.10%)
+2026-07-14 22:34:09.163 | SUCCESS  | __main__:parity:88 - parity PASS for all members

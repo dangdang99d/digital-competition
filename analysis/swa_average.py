@@ -24,7 +24,7 @@ import numpy as np
 import torch
 from loguru import logger
 
-from src.data import ALL_CLASSES, CLASS_TO_ID, load_samples, serialize, split_indices
+from src.data import ALL_CLASSES, CLASS_TO_ID, build_texts, load_samples, serialize, split_indices
 from src.finetune import calibrate_logit_bias
 
 
@@ -64,6 +64,9 @@ def main():
                     help="run was trained with --full_data: eval on the untouched 25%% of val")
     ap.add_argument("--data_dir", default="./data")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--serialize", default="v1",
+                    help="MUST match the run's training serialization (e.g. richargs); "
+                         "default v1 = old behavior. Mismatch silently craters eval F1.")
     args = ap.parse_args()
     from src.runlog import log_cmd
     log_cmd()
@@ -94,7 +97,8 @@ def main():
     if args.full_data:
         from sklearn.model_selection import train_test_split
         _, va = train_test_split(va, test_size=0.25, stratify=y_ids[va], random_state=args.seed)
-    texts = [serialize(samples[i]) for i in va]
+    texts_all = build_texts(samples, input_mode="context", variant=args.serialize)
+    texts = [texts_all[i] for i in va]
     y_true = y_ids[va]
     logger.info(f"eval on {len(va)} samples ({'full_data 25% holdout' if args.full_data else 'standard val'})")
 

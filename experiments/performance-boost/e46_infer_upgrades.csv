@@ -1,0 +1,15 @@
+arm,macro_f1,flips,top_class_frac,secs,note
+base fp32,0.7856,0,0.159,74.8,parity argmax=1.0000
+fp16 (ship precision),0.7858,1,0.159,23.9,
+fp16 body + fp32 head,0.7856,0,0.159,23.8,
+mcdrop p=0.05 K=10 (OFF-LABEL),0.7857,39,0.159,247.4,trained w/ dropout 0.0
+mcdrop p=0.1 K=10 (OFF-LABEL),0.7867,63,0.159,248.5,trained w/ dropout 0.0
+"shot lr=0.0002 (LN affines, n=2048)",0.7844,9,0.159,172.4,ent 1.413->0.758
+"shot lr=0.001 (LN affines, n=2048)",0.7825,67,0.159,171.8,ent 1.413->0.305
+"sar lr=0.0002 (LN affines, n=2048)",0.7844,6,0.159,271.2,ent 1.413->0.752
+"sar lr=0.001 (LN affines, n=2048)",0.7811,77,0.159,271.2,ent 1.413->0.294
+t3a M=20,0.0053,3365,1.0,0.5,COLLAPSE
+t3a M=50,0.0053,3365,1.0,0.5,COLLAPSE
+t3a M=100,0.0053,3365,1.0,0.6,COLLAPSE
+t3a M=inf,0.0053,3365,1.0,3.8,COLLAPSE
+knn label-prop (honest 2-fold),0.7872,-1,-1,,vs base half-mean 0.7856

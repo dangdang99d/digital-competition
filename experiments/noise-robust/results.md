@@ -96,14 +96,16 @@ in the training recipe for that arm.
 
 | Exp | Stage | Method | Venue | Net | +LS in recipe? | New code | Prior | Status | Screen |
 |---|:--:|---|---|:--:|:--:|:--:|:--:|:--:|---|
-| E35-A1 | A | **GCE** (q-sweep) | NeurIPS'18 | 1 | **No** (rival of LS) · +LS probe if survives | `--loss gce --gce_q` ✅ | general first swing | 🟢 **code ready** | — |
-| E35-A2 | A | **SCE** (α,β) | ICCV'19 | 1 | **No** · +LS probe if survives | `--loss sce --sce_alpha/beta` ✅ | ✅ asymmetric-apt | 🟢 **code ready** | — |
-| E35-A3 | A | **NCE+RCE (APL)** | ICML'20 | 1 | **No** · +LS probe if survives | `--loss apl --apl_alpha/beta` ✅ | ✅ principled | 🟢 **code ready** | — |
-| E35-A4 | A | **Bootstrap** (soft/hard) | ICLR'15w | 1 | **No** (already adaptive-LS) | `--loss boot --boot_beta/mode` ✅ | ➖ ≈ self-distill | 🟢 **code ready** | — |
-| E35-B  | B | **ELR** (λ, EMA β) | NeurIPS'20 | 1 | **Yes** (additive reg; LS-CE + λ·reg = primary) | `elr.py` ✅ | ✅ strongest 1-net | 🟢 **code ready** | — |
-| E35-C1 | C | **Co-teaching** (= E22 Grp-3) | NeurIPS'18 | 2 | **No** · +LS probe if survives | `co_teaching.py` ✅ | ➖ ≈ E22 denoise | 🟢 **code ready** | — |
-| E35-C2 | C | **JoCoR** (= E22 Grp-3) | CVPR'20 | 2 | **No** · co-reg agreement | `jocor.py` ✅ | ➖ ≈ E22 denoise | 🟢 **code ready** | — |
-| E35-C3 | C | **DivideMix** (= E22 Grp-3) | ICLR'20 | 2 | **No** · semi-sup | `dividemix.py` ✅ | ➖ ≈ E22 denoise | 🟢 **code ready** | — |
+| E35-A1 | A | **GCE** (q-sweep) | NeurIPS'18 | 1 | **No** (rival of LS) · +LS probe if survives | `--loss gce --gce_q` ✅ | general first swing | ❌ done | **0.7250** (−0.028 vs LS) |
+| E35-A2 | A | **SCE** (α,β) | ICCV'19 | 1 | **No** · +LS probe if survives | `--loss sce --sce_alpha/beta` ✅ | ✅ asymmetric-apt | ❌ done | **0.7427** (−0.011 vs LS) |
+| E35-A3 | A | **NCE+RCE (APL)** | ICML'20 | 1 | **No** · +LS probe if survives | `--loss apl --apl_alpha/beta` ✅ | ✅ principled | ❌ done | **0.6910** (−0.062 vs LS) |
+| E35-A4 | A | **Bootstrap** (soft/hard) | ICLR'15w | 1 | **No** (already adaptive-LS) | `--loss boot --boot_beta/mode` ✅ | ➖ ≈ self-distill | ❌ done | **0.7457** (−0.008 vs LS) |
+| E35-B  | B | **ELR** (λ, EMA β) | NeurIPS'20 | 1 | **Yes** (additive reg; LS-CE + λ·reg = primary) | `elr.py` ✅ | ✅ strongest 1-net | ✅ **WIN** | **0.7586** (+0.0053 vs LS) 🥇 |
+| E35-C1 | C | **Co-teaching** (= E22 Grp-3) | NeurIPS'18 | 2 | **No** · +LS probe if survives | `co_teaching.py` ✅ | ➖ ≈ E22 denoise | ❌ done | **0.7420** (−0.011 vs LS) |
+| E35-C2 | C | **JoCoR** (= E22 Grp-3) | CVPR'20 | 2 | **No** · co-reg agreement | `jocor.py` ✅ | ➖ ≈ E22 denoise | ❌ done | **0.7484** (−0.005 vs LS) |
+| E35-C3 | C | **DivideMix** (= E22 Grp-3) | ICLR'20 | 2 | **No** · semi-sup | `dividemix.py` ✅ | ➖ ≈ E22 denoise | ⏹ cut | warmup 0.738; ~8 hr impractical |
+
+Controls (same recipe): **CE 0.7490 · LS 0.7533**. Ablation **ELR+CE 0.7534** (isolates the reg: +0.0044 ≈ LS's +0.0043 → additive). Champion-recipe (full_data) confirm + AWP factorial in §Results.
 
 **All 8 arms coded + smoke-tested end-to-end 2026-07-13** (user: "implement all") — but the GATES still
 hold for RUNNING: C1 is user-un-gated; A→B→C ordering + the beat-LS bars below still decide what's worth
@@ -180,6 +182,57 @@ only real plumbing) but no extra compute/network. Sweep λ∈{1,3,7}, γ=0.7. Re
   Granite screen ranks nothing final (E8 CV→LB reversal). Marginal champion-confirm win ⇒ build the
   submission zip per the recipe (no logit_bias; user uploads).
 
+## Results (2026-07-13 — vast `sandbox_4x_40gb`, 4×3090)
+
+### Screen — granite v1, standard 56k/14k split, effective batch 16 (bs16, NO accum), 3 epochs, best-epoch
+
+Fresh matched controls (same config): **CE 0.7490 · LS 0.7533** (LS +0.0043, sane; ≈ E9's 0.7458/0.7565).
+
+| Arm | family | best mF1 | Δ vs CE 0.7490 | Δ vs LS 0.7533 | |
+|---|---|---|---|---|---|
+| **ELR + LS** (λ3,β0.7) | early-learning reg | **0.7586** | +0.0096 | **+0.0053** | ✅ **sole winner** |
+| ELR + CE (ablation) | early-learning reg | 0.7534 | +0.0044 | +0.0001 | reg≈LS, stacks additively |
+| boot (soft β0.95) | robust loss | 0.7457 | −0.0033 | −0.0076 | ❌ |
+| JoCoR fr0.10 | sample-select | 0.7484 | −0.0006 | −0.0049 | ❌ |
+| SCE (α0.1,β1) | robust loss | 0.7427 | −0.0063 | −0.0106 | ❌ |
+| co-teaching fr0.10 | sample-select | 0.7420 | −0.0070 | −0.0113 | ❌ |
+| GCE (q0.7) | robust loss | 0.7250 | −0.0240 | −0.0283 | ❌ |
+| APL (NCE+RCE) | robust loss | 0.6910 | −0.0580 | −0.0623 | ❌❌ |
+| DivideMix | semi-sup | **CUT** — warmup 0.738, ~8 hr impractical (10 fwd/batch × 2 nets) | | | ⏹ |
+
+**Verdict (screen):** exactly the E22 prior — every *replace-CE* loss (GCE/SCE/APL/boot) and *both*
+dual-net sample-selection arms (co-teaching/JoCoR) **lose**; LS already absorbs this task's noise.
+**ELR — the only *additive* method — wins +0.0053**, and its ablation confirms the gain is real and
+additive (ELR-reg alone +0.0044 ≈ LS +0.0043 → they stack to +0.0096). Co-teaching/JoCoR both peak at
+low drop-rate (R≈0.05) then *decline* as R ramps → the shared-backbone weak-diversity caveat confirmed.
+
+### full_data confirm + AWP factorial — champion recipe (granite richargs + full_data + LS 0.1), epoch-3 FIXED
+
+The full_data eval is only 3.5k held-out (noisy, ±0.003) → reported the **final epoch (fixed)**, not
+best-epoch selection. 2×2 (each cell same elr.py code path, same eval slice):
+
+| | AWP off | AWP on |
+|---|---|---|
+| **LS** (λ0) | 0.7690 | **0.7797** |
+| **ELR+LS** (λ3) | 0.7704 | **0.7806** |
+
+- **ELR transfers positive but tiny:** +0.0014 (AWP off) / +0.0009 (AWP on) — within the 3.5k slice noise.
+- **AWP is the dominant lever:** +0.0107 / +0.0102 — clears the noise, reproduces E34's AWP win.
+- **Best cell AWP+ELR+LS = 0.7806** ≈ the LS champion 0.7803 (all four cells within slice noise of it).
+- ⚠️ **elr.py code-path deficit:** the standalone loop's LS (0.7690) sits ~0.011 *below* the
+  `finetune.py` HF-Trainer LS champion (0.7803) at epoch-3; AWP's flat-minima regularization closes
+  that gap. So ELR's true deployment value needs porting **into finetune.py's Trainer** (not the
+  standalone loop) — where it would start from 0.7803, not 0.769.
+- **AWP integrated via reuse:** extracted `src.finetune.awp_perturb`/`awp_restore` (refactored
+  `make_awp_trainer` to call them, byte-identical); `elr.py` imports the same helpers (no duplication).
+
+**Verdict (champion recipe):** ELR is a *real but ~noise-level* gain here; **AWP dominates**. Neither
+ELR nor the AWP+ELR combo clears the **+0.003 LB-promote gate on the noisy slice alone**. Next steps:
+ELR λ/β → **Optuna** (not hand-tuned); ELR **ported into finetune.py's Trainer** for an honest
+deployment number; AWP already E34-promoted (LB 0.78557). Screen artifacts + weights: `output/e35/`
+(NFS), epoch-2 backups `fd_*_ep2.*`. Figures: [e35_screen](figures/e35_screen.png) ·
+[e35_awp_factorial](figures/e35_awp_factorial.png).
+
 ## Implementation plan (additive, backward-compatible — invariant)
 
 New code defaults to OLD behavior; no existing flag renamed/repurposed; no running job affected.
@@ -247,6 +300,13 @@ python experiments/noise-robust/dividemix.py --lambda_u 25 --p_threshold 0.5 --w
 blocks `-m`. `--batch_size` tunes to the GPU — dual-net wants a decent batch for the small-loss selection.)
 
 ## Status
+
+✅ **DONE 2026-07-13** — full screen + champion-recipe confirm run on vast `sandbox_4x_40gb`. **ELR+LS
+is the sole screen winner (+0.0053 vs LS)**; all replace-CE/sample-selection arms lose (E22 prior holds);
+DivideMix cut (impractical ~8 hr). At the champion recipe (full_data richargs, epoch-3): ELR transfers
++0.0009–0.0014 (within 3.5k slice noise), **AWP dominates (+0.010)**, best cell AWP+ELR+LS 0.7806 ≈
+champion 0.7803. Neither clears +0.003 on the noisy slice → ELR to Optuna + a finetune.py-Trainer port
+for an honest number. See **§Results** above. (Prior status below, for provenance.)
 
 🟢 **CODE READY** (user 2026-07-13, "implement all") — all 8 arms coded + smoke-tested end-to-end;
 **nothing trained** (local 8GB GPU / 15GB RAM can't hold the two-net arms). Awaits a ≥16GB box for the

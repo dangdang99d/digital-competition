@@ -1,0 +1,10 @@
+2026-07-14 23:06:01.126 | INFO     | src.runlog:log_cmd:16 - CMD: python experiments/ensemble/build_submission.py --runs output/e38/promote_top4/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e38_t031fd,output/e38/promote_top4/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e38_t040fd --tags e38_t031fd,e38_t040fd --variants richargs,richargs --out submissions/submit_0714_e38_pair.zip --build_dir build_e38pair
+2026-07-14 23:06:09.101 | INFO     | __main__:main:132 - used ids (richargs): 10,773
+2026-07-14 23:06:09.106 | INFO     | __main__:main:135 - keep 54,688 tokens (union-used 10,773 + margin 50,000)
+Skipping import of cpp extensions due to incompatible torch version. Please upgrade to torch >= 2.11.0 (found 2.7.1+cu128).
+2026-07-14 23:06:25.186 | INFO     | __main__:main:166 - member_0_e38_t031fd (richargs): pruned fp16 -> build_e38pair/model/member_0_e38_t031fd (306 MB)
+2026-07-14 23:06:38.344 | INFO     | __main__:main:166 - member_1_e38_t040fd (richargs): pruned fp16 -> build_e38pair/model/member_1_e38_t040fd (306 MB)
+2026-07-14 23:07:10.744 | INFO     | __main__:parity:84 - parity e38_t031fd (richargs): argmax flips 0.0333% (tol 0.10%)
+2026-07-14 23:07:36.573 | INFO     | __main__:parity:84 - parity e38_t040fd (richargs): argmax flips 0.0333% (tol 0.10%)
+2026-07-14 23:07:36.605 | SUCCESS  | __main__:parity:88 - parity PASS for all members
+2026-07-14 23:08:10.747 | SUCCESS  | __main__:main:184 - submissions/submit_0714_e38_pair.zip: 553 MB OK under cap

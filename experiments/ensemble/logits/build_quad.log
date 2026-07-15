@@ -1,0 +1,14 @@
+2026-07-13 16:56:36.229 | INFO     | src.runlog:log_cmd:16 - CMD: python experiments/ensemble/build_submission.py --runs output/e34/vast_r1/e34_c_awp,output/optuna/vast_r1/final_fd/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e28_full_t019,output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_e25c_richmeta_ls_bf16,output/pat/ft_ibm-granite__granite-embedding-311m-multilingual-r2_a24_anchor_full_scratch --tags e34_c_awp,e28_full_t019,e25c_richmeta_ls_bf16,a24_anchor_full_scratch --variants richargs,richargs,richmeta,richargs --margin 8000 --out submissions/submit_0713_quad.zip --build_dir build_quad
+2026-07-13 16:56:41.975 | INFO     | __main__:main:132 - used ids (richargs): 10,773
+2026-07-13 16:56:46.631 | INFO     | __main__:main:132 - used ids (richmeta): 10,796
+2026-07-13 16:56:46.634 | INFO     | __main__:main:135 - keep 16,473 tokens (union-used 10,798 + margin 8,000)
+2026-07-13 16:56:53.217 | INFO     | __main__:main:166 - member_0_e34_c_awp (richargs): pruned fp16 -> build_quad/model/member_0_e34_c_awp (247 MB)
+2026-07-13 16:57:00.277 | INFO     | __main__:main:166 - member_1_e28_full_t019 (richargs): pruned fp16 -> build_quad/model/member_1_e28_full_t019 (247 MB)
+2026-07-13 16:57:03.372 | INFO     | __main__:main:166 - member_2_e25c_richmeta_ls_bf16 (richmeta): pruned fp16 -> build_quad/model/member_2_e25c_richmeta_ls_bf16 (247 MB)
+2026-07-13 16:57:06.565 | INFO     | __main__:main:166 - member_3_a24_anchor_full_scratch (richargs): pruned fp16 -> build_quad/model/member_3_a24_anchor_full_scratch (247 MB)
+2026-07-13 16:57:33.530 | INFO     | __main__:parity:84 - parity e34_c_awp (richargs): argmax flips 0.0333% (tol 0.10%)
+2026-07-13 16:57:56.948 | INFO     | __main__:parity:84 - parity e28_full_t019 (richargs): argmax flips 0.0667% (tol 0.10%)
+2026-07-13 16:58:20.608 | INFO     | __main__:parity:84 - parity e25c_richmeta_ls_bf16 (richmeta): argmax flips 0.0333% (tol 0.10%)
+2026-07-13 16:58:43.807 | INFO     | __main__:parity:84 - parity a24_anchor_full_scratch (richargs): argmax flips 0.0667% (tol 0.10%)
+2026-07-13 16:58:43.838 | SUCCESS  | __main__:parity:88 - parity PASS for all members
+2026-07-13 16:59:21.808 | SUCCESS  | __main__:main:184 - submissions/submit_0713_quad.zip: 917 MB OK under cap

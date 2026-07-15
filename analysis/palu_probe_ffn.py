@@ -17,6 +17,7 @@ Usage:
       --proj both --n_val 3000 --ratios 1.0,0.875,0.75,0.625,0.5,0.375,0.25
 """
 import argparse
+import os
 
 import numpy as np
 import torch
@@ -28,7 +29,8 @@ DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
 PROJ_SETS = {
     "kv":  ("k_proj", "v_proj"),
-    "ffn": ("gate_proj", "up_proj", "down_proj"),
+    "ffn": ("gate_proj", "up_proj", "down_proj"),   # qwen3 SwiGLU
+    "ffn_mb": ("Wi", "Wo"),                          # granite/ModernBERT GeGLU
 }
 
 
@@ -43,15 +45,19 @@ def load_model_tok(model_dir):
     tok = AutoTokenizer.from_pretrained(model_dir, local_files_only=True)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
-    model = AutoModelForSequenceClassification.from_pretrained(
-        model_dir, local_files_only=True, torch_dtype=torch.float16).to(DEV).eval()
-    remap = torch.from_numpy(np.load(f"{model_dir}/remap.npy")).long().to(DEV)
-    # sanity: the collator pads with tok.pad_token_id (full-space); after remap
-    # that must equal config.pad_token_id (pruned-space) for pooling to be right.
-    pad_full = tok.pad_token_id
-    print(f"config.pad_token_id={model.config.pad_token_id}  tok.pad_token_id(full)={pad_full}  "
-          f"remap[pad_full]={int(remap[pad_full])}  "
-          f"(pooling OK iff remap[pad_full]==config.pad_token_id)")
+    try:  # granite/ModernBERT: eager attn (no compiled embeddings / flash for hooks)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_dir, local_files_only=True, torch_dtype=torch.float16,
+            attn_implementation="eager", reference_compile=False).to(DEV).eval()
+    except TypeError:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_dir, local_files_only=True, torch_dtype=torch.float16).to(DEV).eval()
+    remap = None
+    if os.path.exists(f"{model_dir}/remap.npy"):   # vocab-pruned (qwen3); granite = full vocab
+        remap = torch.from_numpy(np.load(f"{model_dir}/remap.npy")).long().to(DEV)
+        pad_full = tok.pad_token_id
+        print(f"config.pad_token_id={model.config.pad_token_id}  tok.pad(full)={pad_full}  "
+              f"remap[pad_full]={int(remap[pad_full])}  (pooling OK iff ==config.pad_token_id)")
     return model, tok, remap
 
 
@@ -64,7 +70,8 @@ def predict(model, tok, enc, remap, bs=24):
     for s in range(0, len(order), bs):
         idx = order[s:s + bs]
         batch = {k: v.to(DEV) for k, v in coll([enc[i] for i in idx]).items()}
-        batch["input_ids"] = remap[batch["input_ids"]]     # pruned-vocab remap
+        if remap is not None:
+            batch["input_ids"] = remap[batch["input_ids"]]  # pruned-vocab remap
         pr = model(**batch).logits.float().argmax(-1).cpu().numpy()
         for j, i in enumerate(idx):
             out[i] = int(pr[j])
@@ -90,7 +97,8 @@ def collect_grams(model, tok, calib_enc, targets, remap, bs=8):
     hooks = [m.register_forward_hook(mk(n)) for n, m in targets.items()]
     for s in range(0, len(calib_enc), bs):
         batch = {k: v.to(DEV) for k, v in coll(calib_enc[s:s + bs]).items()}
-        batch["input_ids"] = remap[batch["input_ids"]]
+        if remap is not None:
+            batch["input_ids"] = remap[batch["input_ids"]]
         model(**batch)
     for h in hooks:
         h.remove()
@@ -187,7 +195,14 @@ def main():
     base_f1 = f1_score(y_true, predict(model, tok, val_enc, remap), average="macro")
     print(f"baseline (unmodified) macro-F1 = {base_f1:.4f}   [KV probe subset ref ~0.7734]")
 
-    proj_sets = ["kv", "ffn"] if args.proj == "both" else [args.proj]
+    # auto-detect backbone: granite/ModernBERT has mlp.Wi/Wo (GeGLU) and fused Wqkv attn
+    is_modernbert = any(n.endswith(("mlp.Wi", "mlp.Wo")) for n, _ in model.named_modules())
+    if args.proj == "both":
+        proj_sets = ["ffn_mb"] if is_modernbert else ["kv", "ffn"]
+    elif args.proj == "ffn" and is_modernbert:
+        proj_sets = ["ffn_mb"]
+    else:
+        proj_sets = [args.proj]
     suffixes = tuple(sum((PROJ_SETS[p] for p in proj_sets), ()))
     targets_all = {n: m for n, m in model.named_modules() if n.endswith(suffixes)}
     grams = collect_grams(model, tok, calib_enc, targets_all, remap)

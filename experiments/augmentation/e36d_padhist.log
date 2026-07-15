@@ -1,0 +1,5 @@
+2026-07-13 20:27:57.601 | INFO     | __main__:<module>:41 - natural   overall 0.7558 | short(H<12) 0.7464 | full(H=12) 0.7158
+2026-07-13 20:29:18.869 | INFO     | __main__:<module>:43 - pad-tile     overall 0.7045 (Δ-0.0513) | short 0.6682 (Δ-0.0783) | full 0.7158
+2026-07-13 20:30:44.372 | INFO     | __main__:<module>:43 - pad-repfirst overall 0.7257 (Δ-0.0301) | short 0.7050 (Δ-0.0414) | full 0.7158
+2026-07-13 20:32:05.023 | INFO     | __main__:<module>:43 - pad-random   overall 0.7057 (Δ-0.0502) | short 0.6717 (Δ-0.0747) | full 0.7158
+2026-07-13 20:32:05.023 | INFO     | __main__:<module>:44 - [note] 9633/14000 rows have <12 real events (padding acts on these)

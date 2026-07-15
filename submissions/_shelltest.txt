@@ -1,4 +1,0 @@
-Filesystem      Size  Used Avail Use% Mounted on
-tmpfs           7.8G  6.2G  1.6G  80% /tmp
-/dev/nvme0n1p3  464G  336G  105G  77% /
--rw-r--r-- 1 kyusang kyusang 132 Jul 13 07:45 /mnt/nfs/data/research/ocean_backup-dacon/submissions/_shelltest.txt

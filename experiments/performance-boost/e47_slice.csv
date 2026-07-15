@@ -1,0 +1,5 @@
+drophd_ship,build_drophd/model/granite-311m-e8a-ls-drophd,richargs,0.7839,-0.0017
+msd_ship,build_msd/model/granite-311m-e8a-ls-msd,richargs,0.7898,+0.0042
+ramp_ship,build_ramp/model/granite-311m-e8a-ls-ramp,richargs,0.7838,-0.0018
+s23_ship,build_s23/model/granite-311m-e8a-ls-s23,richargs,0.7879,+0.0023
+s17_ship,build_s17/model/granite-311m-e8a-ls-s17,richargs,0.7848,-0.0008

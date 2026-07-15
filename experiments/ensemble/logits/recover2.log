@@ -3,3 +3,14 @@
 2026-07-13 15:52:27.290 | INFO     | __main__:main:81 -   bgem3_hist0 [richargs] F1=0.7284
 2026-07-13 15:55:27.967 | INFO     | __main__:main:81 -   bgem3_hist0 [richmeta] F1=0.7220
 2026-07-13 15:55:28.104 | SUCCESS  | __main__:main:93 - bgem3_hist0: v1 F1=0.7301 -> saved
+2026-07-13 15:57:16.761 | INFO     | __main__:main:81 -   bgem3_prune12 [v1] F1=0.7353
+2026-07-13 15:58:46.837 | INFO     | __main__:main:81 -   bgem3_prune12 [richargs] F1=0.7391
+2026-07-13 16:00:17.560 | INFO     | __main__:main:81 -   bgem3_prune12 [richmeta] F1=0.7293
+2026-07-13 16:00:17.653 | SUCCESS  | __main__:main:93 - bgem3_prune12: richargs F1=0.7391 -> saved
+2026-07-13 16:00:17.659 | ERROR    | __main__:main:96 - bgem3_rdrop: Expecting value: line 1 column 1 (char 0)
+2026-07-13 16:00:17.706 | ERROR    | __main__:main:96 - bgem3_hardex: Can't load tokenizer for 'output/pat/ft_BAAI__bge-m3_hardex/checkpoint-3500'. If you were trying to load it from 'https://huggingface.co/models', make sure you don't have a local directory with the same name. Otherwise, make sure 'output/pat/ft_BAAI__bge-m3_hardex/checkpoint-3500' is the correct path to a directory containing all relevant files for a XLMRobertaTokenizerFast tokenizer.
+2026-07-13 16:03:42.595 | INFO     | __main__:main:81 -   bgem3_v2_1024 [v1] F1=0.7388
+2026-07-13 16:06:42.493 | INFO     | __main__:main:81 -   bgem3_v2_1024 [richargs] F1=0.7463
+2026-07-13 16:09:43.580 | INFO     | __main__:main:81 -   bgem3_v2_1024 [richmeta] F1=0.7377
+2026-07-13 16:09:43.731 | SUCCESS  | __main__:main:93 - bgem3_v2_1024: richargs F1=0.7463 -> saved
+2026-07-13 16:09:43.775 | SUCCESS  | __main__:main:101 - recover2: 3/6 added

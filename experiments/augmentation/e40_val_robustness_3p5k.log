@@ -1,0 +1,15 @@
+2026-07-14 05:10:46.759 | INFO     | src.runlog:log_cmd:16 - CMD: python /mnt/nfs/data/research/ocean_backup-dacon/experiments/augmentation/e38_val_robustness.py
+2026-07-14 05:10:48.312 | INFO     | __main__:main:51 - eval slice = full_data 3.5k held-out (n=3500)
+2026-07-14 05:10:49.142 | INFO     | __main__:main:71 - 
+===== AWP_best_single  (richargs, val* CONTAMINATED) =====
+2026-07-14 05:11:07.148 | INFO     | __main__:main:91 -   p=0.0   macroF1=0.7810  (Δ+0.0000)  | KO 0.7808  EN 0.7790
+2026-07-14 05:11:22.035 | INFO     | __main__:main:91 -   p=0.02  macroF1=0.7758  (Δ-0.0052)  | KO 0.7782  EN 0.7687
+2026-07-14 05:11:37.515 | INFO     | __main__:main:91 -   p=0.05  macroF1=0.7637  (Δ-0.0173)  | KO 0.7711  EN 0.7449
+2026-07-14 05:11:53.337 | INFO     | __main__:main:91 -   p=0.1   macroF1=0.7385  (Δ-0.0425)  | KO 0.7534  EN 0.7029
+2026-07-14 05:11:53.366 | INFO     | __main__:main:71 - 
+===== e9_honest  (v1, HONEST clean val) =====
+2026-07-14 05:12:10.660 | INFO     | __main__:main:91 -   p=0.0   macroF1=0.7493  (Δ+0.0000)  | KO 0.7491  EN 0.7488
+2026-07-14 05:12:25.304 | INFO     | __main__:main:91 -   p=0.02  macroF1=0.7429  (Δ-0.0064)  | KO 0.7485  EN 0.7299
+2026-07-14 05:12:40.304 | INFO     | __main__:main:91 -   p=0.05  macroF1=0.7331  (Δ-0.0162)  | KO 0.7436  EN 0.7084
+2026-07-14 05:12:55.941 | INFO     | __main__:main:91 -   p=0.1   macroF1=0.7049  (Δ-0.0444)  | KO 0.7229  EN 0.6640
+2026-07-14 05:12:57.312 | SUCCESS  | __main__:main:98 - wrote experiments/augmentation/e38_val_robustness.json

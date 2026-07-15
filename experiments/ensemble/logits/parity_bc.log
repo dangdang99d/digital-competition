@@ -1,0 +1,12 @@
+===== PARITY build_base =====
+2026-07-13 16:13:51.160 | INFO     | src.runlog:log_cmd:16 - CMD: python experiments/ensemble/build_submission.py --parity_only --runs x,x,x --tags e34_c_awp,e28_full_t019,e25c_richmeta_ls_bf16 --variants richargs,richargs,richmeta --out x --build_dir build_base
+2026-07-13 16:14:16.475 | INFO     | __main__:parity:84 - parity e34_c_awp (richargs): argmax flips 0.0333% (tol 0.10%)
+2026-07-13 16:14:37.361 | INFO     | __main__:parity:84 - parity e28_full_t019 (richargs): argmax flips 0.0667% (tol 0.10%)
+2026-07-13 16:15:00.867 | INFO     | __main__:parity:84 - parity e25c_richmeta_ls_bf16 (richmeta): argmax flips 0.0333% (tol 0.10%)
+2026-07-13 16:15:00.893 | SUCCESS  | __main__:parity:88 - parity PASS for all members
+===== PARITY build_selC =====
+2026-07-13 16:15:03.011 | INFO     | src.runlog:log_cmd:16 - CMD: python experiments/ensemble/build_submission.py --parity_only --runs x,x,x --tags e34_c_awp,e28_full_t019,t043_e1 --variants richargs,richargs,richargs --out x --build_dir build_selC
+2026-07-13 16:15:31.532 | INFO     | __main__:parity:84 - parity e34_c_awp (richargs): argmax flips 0.0333% (tol 0.10%)
+2026-07-13 16:15:55.189 | INFO     | __main__:parity:84 - parity e28_full_t019 (richargs): argmax flips 0.0667% (tol 0.10%)
+2026-07-13 16:16:16.325 | INFO     | __main__:parity:84 - parity t043_e1 (richargs): argmax flips 0.0000% (tol 0.10%)
+2026-07-13 16:16:16.355 | SUCCESS  | __main__:parity:88 - parity PASS for all members

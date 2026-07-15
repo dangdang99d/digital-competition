@@ -1,0 +1,44 @@
+2026-07-14 16:38:12.624 | INFO     | src.runlog:log_cmd:16 - CMD: python experiments/performance-boost/e46_infer_upgrades.py
+Skipping import of cpp extensions due to incompatible torch version. Please upgrade to torch >= 2.11.0 (found 2.7.1+cu128).
+2026-07-14 16:39:31.548 | INFO     | __main__:main:236 - parity vs pool npz: argmax agreement 1.0000, max|dlogit|=0.0000
+2026-07-14 16:39:31.551 | INFO     | __main__:report:105 - base fp32                                  F1=0.7856 flips=   0 top=0.16  parity argmax=1.0000
+2026-07-14 16:39:55.615 | INFO     | __main__:report:105 - fp16 (ship precision)                      F1=0.7858 flips=   1 top=0.16  
+2026-07-14 16:40:19.381 | INFO     | __main__:report:105 - fp16 body + fp32 head                      F1=0.7856 flips=   0 top=0.16  
+2026-07-14 16:44:26.917 | INFO     | __main__:report:105 - mcdrop p=0.05 K=10 (OFF-LABEL)             F1=0.7857 flips=  39 top=0.16  trained w/ dropout 0.0
+2026-07-14 16:48:35.539 | INFO     | __main__:report:105 - mcdrop p=0.1 K=10 (OFF-LABEL)              F1=0.7867 flips=  63 top=0.16  trained w/ dropout 0.0
+2026-07-14 16:51:28.250 | INFO     | __main__:report:105 - shot lr=0.0002 (LN affines, n=2048)        F1=0.7844 flips=   9 top=0.16  ent 1.413->0.758
+2026-07-14 16:54:20.305 | INFO     | __main__:report:105 - shot lr=0.001 (LN affines, n=2048)         F1=0.7825 flips=  67 top=0.16  ent 1.413->0.305
+2026-07-14 16:58:51.801 | INFO     | __main__:report:105 - sar lr=0.0002 (LN affines, n=2048)         F1=0.7844 flips=   6 top=0.16  ent 1.413->0.752
+2026-07-14 17:03:23.272 | INFO     | __main__:report:105 - sar lr=0.001 (LN affines, n=2048)          F1=0.7811 flips=  77 top=0.16  ent 1.413->0.294
+2026-07-14 17:03:23.789 | INFO     | __main__:report:105 - t3a M=20                                   F1=0.0053 flips=3365 top=1.00 COLLAPSE 
+2026-07-14 17:03:24.284 | INFO     | __main__:report:105 - t3a M=50                                   F1=0.0053 flips=3365 top=1.00 COLLAPSE 
+2026-07-14 17:03:24.872 | INFO     | __main__:report:105 - t3a M=100                                  F1=0.0053 flips=3365 top=1.00 COLLAPSE 
+2026-07-14 17:03:28.650 | INFO     | __main__:report:105 - t3a M=inf                                  F1=0.0053 flips=3365 top=1.00 COLLAPSE 
+2026-07-14 17:03:33.316 | INFO     | __main__:main:305 -   knn k= 5 a=0.1 s=1  full-slice F1=0.7856
+2026-07-14 17:03:33.318 | INFO     | __main__:main:305 -   knn k= 5 a=0.1 s=2  full-slice F1=0.7853
+2026-07-14 17:03:33.319 | INFO     | __main__:main:305 -   knn k= 5 a=0.2 s=1  full-slice F1=0.7860
+2026-07-14 17:03:33.321 | INFO     | __main__:main:305 -   knn k= 5 a=0.2 s=2  full-slice F1=0.7870
+2026-07-14 17:03:33.322 | INFO     | __main__:main:305 -   knn k= 5 a=0.3 s=1  full-slice F1=0.7869
+2026-07-14 17:03:33.324 | INFO     | __main__:main:305 -   knn k= 5 a=0.3 s=2  full-slice F1=0.7881
+2026-07-14 17:03:33.325 | INFO     | __main__:main:305 -   knn k=10 a=0.1 s=1  full-slice F1=0.7849
+2026-07-14 17:03:33.327 | INFO     | __main__:main:305 -   knn k=10 a=0.1 s=2  full-slice F1=0.7851
+2026-07-14 17:03:33.328 | INFO     | __main__:main:305 -   knn k=10 a=0.2 s=1  full-slice F1=0.7851
+2026-07-14 17:03:33.329 | INFO     | __main__:main:305 -   knn k=10 a=0.2 s=2  full-slice F1=0.7854
+2026-07-14 17:03:33.331 | INFO     | __main__:main:305 -   knn k=10 a=0.3 s=1  full-slice F1=0.7856
+2026-07-14 17:03:33.332 | INFO     | __main__:main:305 -   knn k=10 a=0.3 s=2  full-slice F1=0.7849
+2026-07-14 17:03:33.334 | INFO     | __main__:main:305 -   knn k=20 a=0.1 s=1  full-slice F1=0.7849
+2026-07-14 17:03:33.335 | INFO     | __main__:main:305 -   knn k=20 a=0.1 s=2  full-slice F1=0.7847
+2026-07-14 17:03:33.337 | INFO     | __main__:main:305 -   knn k=20 a=0.2 s=1  full-slice F1=0.7847
+2026-07-14 17:03:33.338 | INFO     | __main__:main:305 -   knn k=20 a=0.2 s=2  full-slice F1=0.7853
+2026-07-14 17:03:33.340 | INFO     | __main__:main:305 -   knn k=20 a=0.3 s=1  full-slice F1=0.7852
+2026-07-14 17:03:33.341 | INFO     | __main__:main:305 -   knn k=20 a=0.3 s=2  full-slice F1=0.7865
+2026-07-14 17:03:33.342 | INFO     | __main__:main:305 -   knn k=50 a=0.1 s=1  full-slice F1=0.7855
+2026-07-14 17:03:33.344 | INFO     | __main__:main:305 -   knn k=50 a=0.1 s=2  full-slice F1=0.7860
+2026-07-14 17:03:33.345 | INFO     | __main__:main:305 -   knn k=50 a=0.2 s=1  full-slice F1=0.7861
+2026-07-14 17:03:33.347 | INFO     | __main__:main:305 -   knn k=50 a=0.2 s=2  full-slice F1=0.7880
+2026-07-14 17:03:33.348 | INFO     | __main__:main:305 -   knn k=50 a=0.3 s=1  full-slice F1=0.7867
+2026-07-14 17:03:33.350 | INFO     | __main__:main:305 -   knn k=50 a=0.3 s=2  full-slice F1=0.7879
+2026-07-14 17:03:33.376 | INFO     | __main__:main:310 -   fold pick (50, 0.2, 2) -> held-out F1 0.7980
+2026-07-14 17:03:33.403 | INFO     | __main__:main:310 -   fold pick (50, 0.3, 2) -> held-out F1 0.7765
+2026-07-14 17:03:33.405 | INFO     | __main__:main:315 - knn honest-2-fold F1=0.7872 vs base 0.7856
+2026-07-14 17:03:33.579 | SUCCESS  | __main__:main:323 - E46 done -> experiments/performance-boost/e46_infer_upgrades.csv
